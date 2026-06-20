@@ -19,7 +19,8 @@
     "reconstruct:sample": "tsx src/cli/index.ts reconstruct test/fixtures/real-world/car-playlists-selection.dir.txt --from-listing"
   },
   "dependencies": {
-    "music-metadata": "^10.6.0"
+    "music-metadata": "^10.6.0",
+    "node-taglib-sharp": "^6.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

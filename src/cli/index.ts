@@ -38,6 +38,7 @@ interface Args {
   json: boolean;
   execute: boolean;
   offline: boolean;
+  writeTags: boolean;
   dest?: string;
   html?: string;
   minConfidence: number;
@@ -66,6 +67,7 @@ function parseArgs(argv: string[]): Args {
     json: flags.get('json') === true,
     execute: flags.get('execute') === true,
     offline: flags.get('offline') === true,
+    writeTags: flags.get('write-tags') === true,
     ...(typeof flags.get('dest') === 'string' ? { dest: flags.get('dest') as string } : {}),
     ...(typeof flags.get('html') === 'string' ? { html: flags.get('html') as string } : {}),
     minConfidence: Number(flags.get('min-confidence') ?? 0),
@@ -214,8 +216,8 @@ async function main(): Promise<void> {
   sommelier reconstruct <listing.txt> --from-listing [--json] [--html out.html]
   sommelier reconstruct <dir> [--scan-limit N] [--json] [--html out.html]
   sommelier plan <path> [--from-listing] --dest <out> [--min-confidence N] [--json]
-  sommelier organize <path> [--from-listing] --dest <out> [--execute] [--min-confidence N]
-    (organize is dry-run unless --execute; originals are never modified)
+  sommelier organize <path> [--from-listing] --dest <out> [--execute] [--write-tags] [--min-confidence N]
+    (organize is dry-run unless --execute; --write-tags stamps corrected tags on the COPIES; originals never modified)
   sommelier insights <path> [--from-listing] [--json]   collection + owner profile
   sommelier enrich <path> [--from-listing] [--limit N] [--offline] [--json]
     (match top releases to MusicBrainz — corrects title/artist/year, adds MBIDs)
@@ -250,15 +252,17 @@ async function main(): Promise<void> {
       console.log(C.yellow('Dry-run only. Pass --execute to copy (originals are never modified).'));
       return;
     }
-    console.log(C.bold(`\nCopying ${plan.actions.length} files → ${destRoot} (verifying each by hash)…\n`));
+    console.log(C.bold(`\nCopying ${plan.actions.length} files → ${destRoot} (verifying each by hash${args.writeTags ? ', tagging copies' : ''})…\n`));
     const result = await executePlan(plan, {
+      writeTags: args.writeTags,
       onProgress: (done, total) => {
         if (done % 25 === 0 || done === total) process.stdout.write(`\r  ${done}/${total}`);
       },
     });
     console.log(
       `\n\n${C.green(`${result.copied} copied`)} · ${result.skipped} skipped · ` +
-        `${result.failed ? C.red(`${result.failed} failed`) : '0 failed'} · ${humanBytes(result.bytesCopied)} written`,
+        `${result.failed ? C.red(`${result.failed} failed`) : '0 failed'}` +
+        `${args.writeTags ? ` · ${C.green(`${result.tagged} tagged`)}` : ''} · ${humanBytes(result.bytesCopied)} written`,
     );
     for (const r of result.results.filter((x) => x.status === 'failed')) console.log(C.red(`  ✗ ${r.action.destRelPath}: ${r.error}`));
   } else if (args.cmd === 'insights') {

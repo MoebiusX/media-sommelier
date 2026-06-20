@@ -20,6 +20,8 @@ export { planOrganize, sanitizeSegment } from './organize/plan.js';
 export type { OrganizePlan, OrganizeAction, OrganizeOptions } from './organize/plan.js';
 export { executePlan } from './organize/execute.js';
 export type { ExecuteReport, ExecuteOptions, ActionResult } from './organize/execute.js';
+export { writeTrackTags } from './organize/tag.js';
+export type { TrackTags } from './organize/tag.js';
 export { renderHtml } from './report/html.js';
 export { computeInsights } from './insights/insights.js';
 export type { InsightsReport, CollectionInsights, OwnerProfile, OwnerSignal } from './insights/insights.js';

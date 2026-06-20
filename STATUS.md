@@ -28,9 +28,21 @@ it returns `invalid API key` for lookups. Lookups need an **application** key (t
 https://acoustid.org/new-application. Paste it into `.env` as `ACOUSTID_API_KEY=` and lookups work
 immediately (I'll then wire fingerprint-fallback into enrich for the files MB-by-tags can't match).
 
-**Deferred:** Electron shell (risky unattended); writing enriched tags onto the organized copies.
+**Tag-writing onto copies is now done** (Milestone 7) and proven on a real track. **Deferred:** Electron
+shell (better with you around); folding *enriched* (MusicBrainz/AcoustID) corrections into the written
+tags — that's the last mile and needs the AcoustID **application** key (you've sent the submission key
+twice; lookups still 401 with it).
 
 ---
+
+## ✅ Milestone 7 — tag-writing onto the organized copies
+
+`src/engine/organize/tag.ts` (node-taglib-sharp, pure-TS, one API across ID3/Vorbis/MP4) writes
+corrected tags; the organize executor now stamps them onto each verified COPY (`--write-tags`,
+best-effort: a tag failure never fails the copy, and the source is never opened for writing). Plan
+attaches baseline tags from reconstruction (title/album/albumArtist/track/disc/year), ready to be
+overridden by enrichment. Proven live: organized `The Eagles\Top 100\01 - Hotel California.mp3` with
+tags written to the copy and the source byte-identical afterward. 29 tests green (incl. plan-tags test).
 
 ## ✅ Milestone 6 — audio fingerprinting pipeline (fpcalc + AcoustID)
 

@@ -11,10 +11,13 @@ import { createReadStream } from 'node:fs';
 import { mkdir, copyFile, rename, stat, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { OrganizePlan, OrganizeAction } from './plan.js';
+import { writeTrackTags } from './tag.js';
 
 export interface ExecuteOptions {
   /** If true, do everything except the actual byte copy (default false). */
   dryRun?: boolean;
+  /** Stamp corrected tags onto each copy after verification (default false). */
+  writeTags?: boolean;
   onProgress?: (done: number, total: number, action: OrganizeAction) => void;
 }
 
@@ -24,6 +27,8 @@ export interface ActionResult {
   sourceHash?: string;
   copyHash?: string;
   bytes?: number;
+  tagWritten?: boolean;
+  tagError?: string;
   error?: string;
 }
 
@@ -32,6 +37,7 @@ export interface ExecuteReport {
   copied: number;
   skipped: number;
   failed: number;
+  tagged: number;
   bytesCopied: number;
 }
 
@@ -59,6 +65,7 @@ export async function executePlan(plan: OrganizePlan, opts: ExecuteOptions = {})
   let copied = 0;
   let skipped = 0;
   let failed = 0;
+  let tagged = 0;
   let bytesCopied = 0;
 
   for (let i = 0; i < plan.actions.length; i++) {
@@ -93,7 +100,20 @@ export async function executePlan(plan: OrganizePlan, opts: ExecuteOptions = {})
         throw new Error(`hash mismatch after copy (src ${sourceHash.slice(0, 12)} != copy ${copyHash.slice(0, 12)})`);
       }
       await rename(tmp, action.destPath); // atomic publish
-      results.push({ action, status: 'copied', sourceHash, copyHash, bytes: size });
+
+      // tag the COPY (never the source); best-effort — a tag failure doesn't fail the copy
+      let tagWritten: boolean | undefined;
+      let tagError: string | undefined;
+      if (opts.writeTags && action.tags) {
+        try {
+          writeTrackTags(action.destPath, action.tags);
+          tagWritten = true;
+          tagged++;
+        } catch (e) {
+          tagError = e instanceof Error ? e.message : String(e);
+        }
+      }
+      results.push({ action, status: 'copied', sourceHash, copyHash, bytes: size, ...(tagWritten ? { tagWritten } : {}), ...(tagError ? { tagError } : {}) });
       copied++;
       bytesCopied += size;
     } catch (err) {
@@ -102,5 +122,5 @@ export async function executePlan(plan: OrganizePlan, opts: ExecuteOptions = {})
     }
   }
 
-  return { results, copied, skipped, failed, bytesCopied };
+  return { results, copied, skipped, failed, tagged, bytesCopied };
 }
