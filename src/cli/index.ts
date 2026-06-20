@@ -167,8 +167,9 @@ async function buildEnrichment(report: ReconstructionReport, args: Args): Promis
     i++;
     const e = await enrichCandidate(c, { mb, acoustid, fingerprintFallback: fpFallback, fetchTracklist: true });
     if (e.status === 'matched' && e.match) {
+      const tracklist = e.match.tracklist ?? [];
       const trackTitles = new Map<string, string>();
-      for (const t of e.match.tracklist ?? []) trackTitles.set(`${t.disc}:${t.position}`, t.title);
+      for (const t of tracklist) trackTitles.set(`${t.disc}:${t.position}`, t.title);
       map.set(c.id, {
         artist: e.match.artist,
         album: e.match.album,
@@ -176,6 +177,7 @@ async function buildEnrichment(report: ReconstructionReport, args: Args): Promis
         ...(e.match.mbid ? { mbReleaseId: e.match.mbid } : {}),
         ...(e.match.releaseGroupMbid ? { mbReleaseGroupId: e.match.releaseGroupMbid } : {}),
         ...(trackTitles.size ? { trackTitles } : {}),
+        ...(tracklist.length ? { tracklist } : {}),
       });
     }
     if (i % 5 === 0 || i === cands.length) process.stderr.write(`\r  ${i}/${cands.length} (${map.size} matched)`);
