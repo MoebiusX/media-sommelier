@@ -20,6 +20,8 @@ export { readCover } from './inventory/cover.js';
 export type { Cover } from './inventory/cover.js';
 export { scanLibrary } from './library/scan.js';
 export type { Track, ScanLibraryOptions } from './library/scan.js';
+export { scanLibraryCached } from './library/catalog.js';
+export type { CachedScanResult, CachedScanOptions } from './library/catalog.js';
 export { computeLibraryStats } from './library/stats.js';
 export type { LibraryStats } from './library/stats.js';
 export { parseName } from './reconstruct/parseName.js';

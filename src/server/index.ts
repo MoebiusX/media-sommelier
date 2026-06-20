@@ -21,7 +21,7 @@ import {
   executePlan,
   walkToArray,
   readCover,
-  scanLibrary,
+  scanLibraryCached,
   computeLibraryStats,
   MusicBrainzClient,
   AcoustIdClient,
@@ -169,9 +169,8 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/api/library') {
       const folder = url.searchParams.get('source');
       if (!folder || folder === 'sample') return json(res, { needsFolder: true });
-      const limit = Number(url.searchParams.get('limit') ?? 0) || undefined;
-      const tracks = await scanLibrary(folder, { ...(limit ? { limit } : {}) });
-      return json(res, { root: folder, stats: computeLibraryStats(tracks), tracks: tracks.map(leanTrack) });
+      const r = await scanLibraryCached(folder, { cacheDir: 'data/catalogs' });
+      return json(res, { root: folder, stats: computeLibraryStats(r.tracks), tracks: r.tracks.map(leanTrack), cache: { cached: r.cached, scanned: r.scanned, removed: r.removed } });
     }
 
     const source = url.searchParams.get('source');
