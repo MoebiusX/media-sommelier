@@ -83,6 +83,11 @@
   #player .pp { background:linear-gradient(135deg,var(--accent),var(--accent2))!important; border-radius:50%!important; width:38px; height:38px; padding:0!important; font-size:14px!important; }
   #player .seekwrap { flex:1; display:flex; align-items:center; gap:9px; color:var(--dim); font-size:12px; font-variant-numeric:tabular-nums; }
   #player input[type=range] { accent-color:var(--accent2); cursor:pointer; } #player #seek { flex:1; } #player .vol { width:84px; }
+  /* photos */
+  .pgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:8px; }
+  .pgrid a { position:relative; display:block; aspect-ratio:1; border-radius:8px; overflow:hidden; background:#1a1e27; }
+  .pgrid img { width:100%; height:100%; object-fit:cover; display:block; }
+  .pgrid .gps { position:absolute; top:4px; right:5px; font-size:11px; opacity:.85; }
 </style>
 </head>
 <body>
@@ -98,6 +103,7 @@
   <div class="tabs" id="tabs" hidden>
     <button data-tab="library">Library</button>
     <button data-tab="albums" class="active">Albums</button>
+    <button data-tab="photos">Photos</button>
     <button data-tab="insights">Insights</button>
     <button data-tab="organize">Organize</button>
   </div>
@@ -190,6 +196,10 @@ async function render() {
     view.innerHTML = '<div class="empty"><span class="spin"></span> Reading tags across the folder…</div>';
     await loadLibrary();
     renderLibrary();
+  } else if (tab === 'photos') {
+    view.innerHTML = '<div class="empty"><span class="spin"></span> Reading photo EXIF…</div>';
+    await loadPhotos();
+    renderPhotos();
   } else {
     const p = await loadPresets();
     const opts = Object.entries(p).map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join('');
@@ -272,6 +282,25 @@ function renderRows() {
   view.querySelectorAll('#libbody tr').forEach((tr)=>tr.onclick=()=>playIndex(Number(tr.dataset.i)));
   view.querySelectorAll('thead th[data-k]').forEach((h)=>{ h.classList.remove('up','dn'); if(h.dataset.k===libSort.key)h.classList.add(libSort.asc?'up':'dn'); });
   markPlaying();
+}
+
+// ---- Photos ----
+let photos = null;
+async function loadPhotos() {
+  if (src()==='sample') { photos = { needsFolder:true }; return; }
+  if (photos && photos._for===src()) return;
+  const r = await (await fetch('/api/photos?source='+encodeURIComponent(src()))).json();
+  r._for = src(); photos = r;
+}
+function renderPhotos() {
+  if (photos?.needsFolder) { view.innerHTML='<div class="empty">Photos read EXIF from real files, so they need a folder.<br><br><button id="pf" class="go">📁 Pick a folder</button></div>'; $('#pf').onclick=async()=>{ await browse(); photos=null; render(); }; return; }
+  if (photos?.error) { view.innerHTML='<div class="empty warn">⚠ '+esc(photos.error)+'</div>'; return; }
+  const st = photos.stats;
+  if (!st.count) { view.innerHTML='<div class="empty">No images found under this folder.</div>'; return; }
+  const dr = st.dateRange.from ? `${st.dateRange.from.slice(0,10)} → ${(st.dateRange.to||'').slice(0,10)}` : '';
+  view.innerHTML = `<div class="statcard"><span><span class="b">${st.count.toLocaleString()}</span> photos</span><span class="b">${human(st.bytes)}</span><span>${st.withGps} geotagged</span>${dr?`<span>${dr}</span>`:''}${st.cameras.length?`<span>${st.cameras.slice(0,3).map(c=>esc(c.name)+' ('+c.count+')').join(' · ')}</span>`:''}</div>
+    <div class="pgrid">${photos.photos.slice(0,600).map(p=>`<a href="/api/image?path=${encodeURIComponent(p.path)}" target="_blank" title="${esc((p.takenAt?p.takenAt.slice(0,10)+' · ':'')+(p.camera||''))}">${p.gps?'<span class="gps">📍</span>':''}<img loading="lazy" src="/api/image?path=${encodeURIComponent(p.path)}"></a>`).join('')}</div>
+    ${photos.photos.length>600?`<p class="hint">Showing first 600 of ${photos.photos.length.toLocaleString()}.</p>`:''}`;
 }
 
 // ---- Mini player ----

@@ -23,6 +23,7 @@ import {
   readCover,
   scanLibraryCached,
   computeLibraryStats,
+  scanPhotos,
   MusicBrainzClient,
   AcoustIdClient,
   enrichCandidate,
@@ -32,6 +33,8 @@ import {
   type AlbumEnrichment,
   type Track,
 } from '../engine/index.js';
+
+const IMAGE_MIME: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', heic: 'image/heic', tiff: 'image/tiff' };
 
 const AUDIO_MIME: Record<string, string> = {
   mp3: 'audio/mpeg', flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac',
@@ -165,6 +168,23 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': c.mime, 'cache-control': 'max-age=86400' });
       res.end(c.data);
       return;
+    }
+    if (url.pathname === '/api/image') {
+      const p = url.searchParams.get('path');
+      const ext = (p?.split('.').pop() ?? '').toLowerCase();
+      if (!p || !IMAGE_MIME[ext]) { res.writeHead(p ? 415 : 400); res.end(); return; }
+      try {
+        await stat(p);
+      } catch { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, { 'content-type': IMAGE_MIME[ext], 'cache-control': 'max-age=86400' });
+      createReadStream(p).pipe(res);
+      return;
+    }
+    if (url.pathname === '/api/photos') {
+      const folder = url.searchParams.get('source');
+      if (!folder || folder === 'sample') return json(res, { needsFolder: true });
+      const r = await scanPhotos(folder);
+      return json(res, { stats: r.stats, photos: r.photos.map((p) => ({ path: p.path, takenAt: p.takenAt ?? null, camera: p.camera ?? '', width: p.width ?? null, height: p.height ?? null, gps: p.gpsLat != null, sizeBytes: p.sizeBytes })) });
     }
     if (url.pathname === '/api/library') {
       const folder = url.searchParams.get('source');

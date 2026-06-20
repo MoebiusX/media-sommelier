@@ -24,6 +24,8 @@ export { scanLibraryCached } from './library/catalog.js';
 export type { CachedScanResult, CachedScanOptions } from './library/catalog.js';
 export { computeLibraryStats } from './library/stats.js';
 export type { LibraryStats } from './library/stats.js';
+export { readPhoto, scanPhotos } from './library/photos.js';
+export type { Photo, PhotoStats, PhotoScanResult } from './library/photos.js';
 export { parseName } from './reconstruct/parseName.js';
 export { reconstruct } from './reconstruct/reconstruct.js';
 export { planOrganize, sanitizeSegment, ORGANIZE_PRESETS } from './organize/plan.js';

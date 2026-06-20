@@ -20,6 +20,7 @@
     "reconstruct:sample": "tsx src/cli/index.ts reconstruct test/fixtures/sample/sample-collection.dir.txt --from-listing"
   },
   "dependencies": {
+    "exifr": "^7.1.3",
     "music-metadata": "^10.6.0",
     "node-taglib-sharp": "^6.0.3"
   },
