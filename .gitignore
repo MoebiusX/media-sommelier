@@ -1,0 +1,30 @@
+# deps
+node_modules/
+.pnp.*
+.yarn/*
+
+# build
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# desktop packaging
+src-tauri/target/
+release/
+
+# local data / caches (never commit a user's catalog or enrichment cache)
+*.sqlite
+*.sqlite-*
+*.db
+data/
+cache/
+.env
+.env.local
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
