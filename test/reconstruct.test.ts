@@ -67,6 +67,20 @@ describe('album reconstruction on the real sample', () => {
   });
 });
 
+describe('in-folder multi-disc (single folder, 1xx/2xx prefixes)', () => {
+  it('splits one folder into discs by 3-digit prefix', () => {
+    const dir = 'X:\\Music\\Some 2CD Set';
+    const mk = (name: string) => ({
+      path: `${dir}\\${name}`, dir, name, ext: 'mp3', sizeBytes: 1000, mtime: '2024-01-01', mediaType: 'music' as const,
+    });
+    const r = reconstruct([mk('101-artist-one.mp3'), mk('102-artist-two.mp3'), mk('201-artist-three.mp3')]);
+    const c = r.candidates[0]!;
+    expect(c.discs.length).toBe(2);
+    expect(c.totalTracks).toBe(3);
+    expect(c.flags).toContain('in-folder-multi-disc');
+  });
+});
+
 describe('filename parsing', () => {
   it('parses disc+track underscore scheme', () => {
     const p = parseName('201-led_zeppelin-dazed_and_confused.mp3');

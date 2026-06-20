@@ -2,6 +2,27 @@
 
 _Running log so we can review on your return. Newest first._
 
+## ▶ Review summary (read me first)
+
+**A complete, tested V0 of the engine is built and committed** — the whole pipeline works end-to-end on
+your real `Selection` data: **scan → reconstruct albums → organize (copy, verified) → insights + owner
+profile**. 21 tests green, `tsc` clean, 6 commits on `main`. Open `docs/sample-report.html` in a browser
+to see the reconstruction; run the CLI commands in `README.md` to drive it.
+
+I **stopped here on purpose** rather than spin into the next phase unattended, because the next steps
+either need your decision or can't be verified without your real files:
+
+1. **Commercial vs non-commercial** — gates the whole enrichment stack (MusicBrainz/AcoustID/Discogs
+   licensing). V1 (fingerprinting + online matching, which fixes typo'd titles and recovers the
+   orphaned Eagles/Marc-Antoine albums) is blocked on this. *Recommended: non-commercial/personal.*
+2. **Run it on the real drive** — I can't reach `Y:\` from here, so I validated via the `dir` listing.
+   The `fs` walker is built + integration-tested; pointing it at `Y:\Car Playlists` is the real dogfood.
+3. **Desktop shell (Electron)** — deferred; building/verifying a GUI unattended risks a broken state.
+
+Say "keep going" + answer #1 and I'll start V1; or we review together.
+
+---
+
 ## ✅ Milestone 3 — collection insights + owner profiling (your original vision)
 
 The "tell me interesting things about the collection and its owner" feature, V0. Run it:

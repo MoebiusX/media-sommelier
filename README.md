@@ -68,8 +68,26 @@ test/        fixtures incl. the real-world Car Playlists sample
 packages/    (engine core, app, cli — landing with the implementation plan)
 ```
 
-## Status
+## Status — V0 engine working
 
-Greenfield. The detailed, multi-phase implementation plan
-([`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md)) is being generated from a multi-agent
-design pass and will land next.
+The offline reconstruction engine is built, tested (20 tests), and proven on the real sample. See
+[`STATUS.md`](STATUS.md) for the running log and [`GOAL.md`](GOAL.md) for the V0 checklist.
+
+```bash
+npm install
+npm test                                                   # 20 tests
+LISTING=test/fixtures/real-world/car-playlists-selection.dir.txt
+npx tsx src/cli/index.ts reconstruct $LISTING --from-listing            # rebuild albums
+npx tsx src/cli/index.ts reconstruct $LISTING --from-listing --html docs/sample-report.html
+npx tsx src/cli/index.ts insights   $LISTING --from-listing            # collection + owner profile
+npx tsx src/cli/index.ts organize   $LISTING --from-listing --dest D:/Organized   # dry-run (add --execute to copy)
+```
+
+`--from-listing` parses a Windows `dir /s` dump (how we test on real data without the drive mounted);
+omit it to scan a real folder via the filesystem walker. The full multi-phase plan is in
+[`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+
+**V0 does (offline, heuristic):** scan → reconstruct albums (multi-disc merge, completeness, orphans,
+duplicates) → dry-run/execute copy-to-new-tree (hash-verified, source read-only) → collection + owner
+insights. **V1 adds** (needs the commercial-licensing decision first): audio fingerprinting +
+MusicBrainz/Discogs enrichment, provenance, real tag writing.
