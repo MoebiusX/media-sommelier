@@ -67,6 +67,35 @@ describe('fs walk → reconstruct → organize → execute (synthetic, source re
   });
 });
 
+describe('executor safety guards', () => {
+  it('FAILS colliding actions instead of silently overwriting', async () => {
+    const dest = join(root, 'collide-dest');
+    const a = join(root, 'srcA.mp3');
+    const b = join(root, 'srcB.mp3');
+    await writeFile(a, 'AAA');
+    await writeFile(b, 'BBB');
+    const plan = {
+      destRoot: dest,
+      collisions: [{ destRelPath: 'same.mp3', sources: [a, b] }],
+      skipped: [],
+      actions: [
+        { candidateId: 'x', sourcePath: a, destRelPath: 'same.mp3', destPath: join(dest, 'same.mp3'), tags: {} },
+        { candidateId: 'y', sourcePath: b, destRelPath: 'same.mp3', destPath: join(dest, 'same.mp3'), tags: {} },
+      ],
+    };
+    const r = await executePlan(plan);
+    expect(r.failed).toBe(2);
+    expect(r.copied).toBe(0);
+  });
+
+  it('REFUSES a destination inside the source tree', async () => {
+    const src = join(root, 'src');
+    await expect(
+      executePlan({ destRoot: join(src, 'organized'), actions: [], collisions: [], skipped: [] }, { sourceRoot: src }),
+    ).rejects.toThrow(/overlaps/i);
+  });
+});
+
 afterAll(async () => {
   // best-effort cleanup; ignore failures
   try {

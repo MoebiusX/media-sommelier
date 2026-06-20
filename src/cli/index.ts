@@ -255,6 +255,7 @@ async function main(): Promise<void> {
     console.log(C.bold(`\nCopying ${plan.actions.length} files → ${destRoot} (verifying each by hash${args.writeTags ? ', tagging copies' : ''})…\n`));
     const result = await executePlan(plan, {
       writeTags: args.writeTags,
+      ...(args.fromListing ? {} : { sourceRoot: args.target }),
       onProgress: (done, total) => {
         if (done % 25 === 0 || done === total) process.stdout.write(`\r  ${done}/${total}`);
       },
@@ -297,6 +298,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(C.red(err instanceof Error ? err.message : String(err)));
   process.exit(1);
 });
