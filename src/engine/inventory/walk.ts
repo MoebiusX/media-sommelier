@@ -109,3 +109,43 @@ export async function walkToArray(root: string, opts: WalkOptions = {}): Promise
   for await (const rec of walk(root, opts)) out.push(rec);
   return out;
 }
+
+export interface WaitOptions {
+  /** Poll interval (default 15s). */
+  intervalMs?: number;
+  /** Give up after this long; 0 = wait forever (default 0). */
+  timeoutMs?: number;
+  /** Called before each wait with elapsed ms. */
+  onWait?: (elapsedMs: number) => void;
+  /** Injectable existence check (defaults to fs stat) — for tests. */
+  exists?: (p: string) => Promise<boolean>;
+  /** Injectable sleep — for tests. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Block until `path` becomes accessible (e.g. a sleeping/unmounted network or USB drive spins up),
+ * polling at `intervalMs`. Returns true once present, false on timeout. Lets a long job be queued
+ * against a drive that isn't mounted yet — no babysitting the mount.
+ */
+export async function waitForPath(path: string, opts: WaitOptions = {}): Promise<boolean> {
+  const interval = opts.intervalMs ?? 15_000;
+  const timeout = opts.timeoutMs ?? 0;
+  const exists = opts.exists ?? (async (p: string) => {
+    try {
+      await stat(p);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  let elapsed = 0;
+  for (;;) {
+    if (await exists(path)) return true;
+    if (timeout > 0 && elapsed >= timeout) return false;
+    opts.onWait?.(elapsed);
+    await sleep(interval);
+    elapsed += interval;
+  }
+}

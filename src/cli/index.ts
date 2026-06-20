@@ -25,6 +25,7 @@ import {
   fpcalcAvailable,
   AcoustIdClient,
   walkToArray,
+  waitForPath,
   humanBytes,
   type AlbumCandidate,
   type MediaFileRecord,
@@ -43,6 +44,8 @@ interface Args {
   offline: boolean;
   writeTags: boolean;
   enrich: boolean;
+  waitForSource: boolean;
+  waitTimeout?: number;
   dest?: string;
   html?: string;
   minConfidence: number;
@@ -73,6 +76,8 @@ function parseArgs(argv: string[]): Args {
     offline: flags.get('offline') === true,
     writeTags: flags.get('write-tags') === true,
     enrich: flags.get('enrich') === true,
+    waitForSource: flags.get('wait-for-source') === true,
+    ...(flags.get('wait-timeout') ? { waitTimeout: Number(flags.get('wait-timeout')) } : {}),
     ...(typeof flags.get('dest') === 'string' ? { dest: flags.get('dest') as string } : {}),
     ...(typeof flags.get('html') === 'string' ? { html: flags.get('html') as string } : {}),
     minConfidence: Number(flags.get('min-confidence') ?? 0),
@@ -85,6 +90,14 @@ async function loadInventory(args: Args): Promise<MediaFileRecord[]> {
   if (args.fromListing) {
     const text = await readFile(args.target, 'utf8');
     return parseDirListing(text);
+  }
+  if (args.waitForSource) {
+    const ok = await waitForPath(args.target, {
+      ...(args.waitTimeout ? { timeoutMs: args.waitTimeout * 60_000 } : {}),
+      onWait: (ms) => process.stderr.write(`\r  waiting for source "${args.target}" to mount… (${Math.round(ms / 1000)}s elapsed)`),
+    });
+    if (!ok) throw new Error(`source "${args.target}" did not become available within ${args.waitTimeout} min`);
+    process.stderr.write(`\r  source is available — scanning.${' '.repeat(20)}\n`);
   }
   let skipped = 0;
   const records = await walkToArray(args.target, {
@@ -257,7 +270,10 @@ async function main(): Promise<void> {
   sommelier insights <path> [--from-listing] [--json]   collection + owner profile
   sommelier enrich <path> [--from-listing] [--limit N] [--offline] [--json]
     (match top releases to MusicBrainz — corrects title/artist/year, adds MBIDs)
-  sommelier fingerprint <audio-file>   (Chromaprint fingerprint + AcoustID lookup if key set)`);
+  sommelier fingerprint <audio-file>   (Chromaprint fingerprint + AcoustID lookup if key set)
+
+  Folder scans also accept --wait-for-source [--wait-timeout MIN] to block until a sleeping/unmounted
+  drive comes back, so a long job can be queued before the drive is ready.`);
     process.exit(args.target ? 0 : 1);
   }
 

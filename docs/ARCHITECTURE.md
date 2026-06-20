@@ -54,7 +54,10 @@ inventory ──▶ reconstruct ──▶ [enrich] ──▶ plan ──▶ exec
 - **Enrich** (optional) corrects candidates against MusicBrainz, with AcoustID fingerprinting as a
   fallback. Produces canonical artist/album/year/MBIDs and per-track titles.
 - **Plan** turns candidates (+ enrichment overrides) into an `OrganizePlan`: one `OrganizeAction` per
-  file with a sanitized destination path and a `TrackTags` payload. Detects destination collisions.
+  file with a sanitized destination path and a `TrackTags` payload. Detects destination collisions, and
+  recovers a multi-disc release that reconstruction collapsed into one disc (two discs both numbered from
+  1 in a single folder) — remapping onto the authoritative MusicBrainz tracklist when enrichment is
+  active, or splitting by track-number resets offline — so the discs land in `Disc 1/`, `Disc 2/`, ….
 - **Execute** performs the only writes in the system, all to the destination tree.
 
 ## Reconstruction (engine core)
@@ -115,10 +118,11 @@ The product's #1 promise: **source files are never mutated.** Hardened after an 
 
 ## Testing
 
-60 tests (`vitest`), all network/disk-free except two real-FS integration tests:
+74 tests (`vitest`), all network/disk-free except two real-FS integration tests:
 
 - pure logic: text helpers, `parseName`, reconstruction on the real sample, the match scorer, tracklist
-  extraction, AcoustID response parsing, plan tags/enrichment overrides, path sanitization.
+  extraction, AcoustID response parsing, plan tags/enrichment overrides, multi-disc recovery (collapsed
+  releases re-split via the MB tracklist or track-number resets), path sanitization.
 - **clients**: `MusicBrainzClient`/`AcoustIdClient` via an **injected `fetch`** — caching, offline,
   error-not-cached.
 - **orchestration**: `enrichCandidate` via duck-typed fakes + an injected `fingerprintFn` — MB-tags
