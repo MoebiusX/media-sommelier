@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { selectBestRelease, scoreRelease } from '../src/engine/index.js';
-import type { AlbumCandidate, MBRelease } from '../src/engine/index.js';
+import { selectBestRelease, scoreRelease, extractTracklist } from '../src/engine/index.js';
+import type { AlbumCandidate, MBRelease, MBReleaseDetail } from '../src/engine/index.js';
 
 /** Network-free test of the matching scorer against fixture MusicBrainz release objects. */
 const candidate = {
@@ -52,5 +52,25 @@ describe('MusicBrainz match scoring', () => {
   it('returns null when nothing clears the threshold', () => {
     const junk: MBRelease[] = [{ id: 'x', title: 'Completely Different', 'track-count': 99, 'artist-credit': [{ name: 'Someone Else' }] }];
     expect(selectBestRelease(candidate, junk)).toBeNull();
+  });
+});
+
+describe('MusicBrainz tracklist extraction', () => {
+  it('flattens media into (disc, position, title) entries', () => {
+    const rel: MBReleaseDetail = {
+      id: 'r1',
+      title: 'Echoes',
+      media: [
+        { position: 1, tracks: [{ position: 1, title: 'Astronomy Domine' }, { position: 2, title: 'See Emily Play' }] },
+        { position: 2, tracks: [{ position: 1, title: 'Time' }] },
+      ],
+    };
+    const tl = extractTracklist(rel);
+    expect(tl).toHaveLength(3);
+    expect(tl[0]).toEqual({ disc: 1, position: 1, title: 'Astronomy Domine' });
+    expect(tl[2]).toEqual({ disc: 2, position: 1, title: 'Time' });
+  });
+  it('returns [] for a null release', () => {
+    expect(extractTracklist(null)).toEqual([]);
   });
 });

@@ -113,7 +113,8 @@ export class AcoustIdClient {
       this.stats.errors++;
       return { ok: false, error: 'network error', matchCount: 0 };
     }
-    await this.writeCache(cacheKey, json);
+    // cache only successful responses (incl. valid no-match); never cache auth/transient errors
+    if (json && (json as Record<string, unknown>).status === 'ok') await this.writeCache(cacheKey, json);
     return parseLookupResponse(json);
   }
 

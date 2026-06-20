@@ -19,6 +19,7 @@ import {
   computeInsights,
   MusicBrainzClient,
   enrichTop,
+  enrichCandidate,
   fingerprintFile,
   fpcalcPath,
   fpcalcAvailable,
@@ -29,6 +30,8 @@ import {
   type MediaFileRecord,
   type ReconstructionReport,
   type InsightsReport,
+  type OrganizePlan,
+  type AlbumEnrichment,
 } from '../engine/index.js';
 
 interface Args {
@@ -39,6 +42,7 @@ interface Args {
   execute: boolean;
   offline: boolean;
   writeTags: boolean;
+  enrich: boolean;
   dest?: string;
   html?: string;
   minConfidence: number;
@@ -68,6 +72,7 @@ function parseArgs(argv: string[]): Args {
     execute: flags.get('execute') === true,
     offline: flags.get('offline') === true,
     writeTags: flags.get('write-tags') === true,
+    enrich: flags.get('enrich') === true,
     ...(typeof flags.get('dest') === 'string' ? { dest: flags.get('dest') as string } : {}),
     ...(typeof flags.get('html') === 'string' ? { html: flags.get('html') as string } : {}),
     minConfidence: Number(flags.get('min-confidence') ?? 0),
@@ -138,17 +143,45 @@ function printCandidate(c: AlbumCandidate): void {
   for (const e of c.evidence) console.log(C.dim(`    · ${e}`));
 }
 
-function printPlan(report: ReconstructionReport, destRoot: string, minConfidence: number): void {
-  const plan = planOrganize(report.candidates, { destRoot, minConfidence });
-  console.log(C.bold(`\n📂 Dry-run organize plan → ${destRoot}\n`));
+function printPlan(plan: OrganizePlan, destRoot: string): void {
+  console.log(C.bold(`\n📂 Organize plan → ${destRoot}\n`));
   console.log(`${plan.actions.length} files would be copied (originals untouched).`);
-  if (plan.skipped.length) console.log(C.dim(`${plan.skipped.length} candidate(s) skipped (below min-confidence)`));
+  if (plan.skipped.length) console.log(C.dim(`${plan.skipped.length} item(s) skipped`));
   if (plan.collisions.length) console.log(C.red(`${plan.collisions.length} destination collision(s)!`));
   console.log('');
   const sample = plan.actions.slice(0, 24);
   for (const a of sample) console.log(C.dim('  ' + a.destRelPath));
   if (plan.actions.length > sample.length) console.log(C.dim(`  … and ${plan.actions.length - sample.length} more`));
   console.log('');
+}
+
+async function buildEnrichment(report: ReconstructionReport, args: Args): Promise<Map<string, AlbumEnrichment>> {
+  const mb = new MusicBrainzClient({ offline: args.offline });
+  const acoustid = new AcoustIdClient();
+  const fpFallback = !args.offline && !args.fromListing && acoustid.hasKey();
+  const map = new Map<string, AlbumEnrichment>();
+  const cands = report.candidates;
+  console.error(`Enriching ${cands.length} releases via MusicBrainz${fpFallback ? ' + AcoustID fallback' : ''} (rate-limited)…`);
+  let i = 0;
+  for (const c of cands) {
+    i++;
+    const e = await enrichCandidate(c, { mb, acoustid, fingerprintFallback: fpFallback, fetchTracklist: true });
+    if (e.status === 'matched' && e.match) {
+      const trackTitles = new Map<string, string>();
+      for (const t of e.match.tracklist ?? []) trackTitles.set(`${t.disc}:${t.position}`, t.title);
+      map.set(c.id, {
+        artist: e.match.artist,
+        album: e.match.album,
+        ...(e.match.year != null ? { year: e.match.year } : {}),
+        ...(e.match.mbid ? { mbReleaseId: e.match.mbid } : {}),
+        ...(e.match.releaseGroupMbid ? { mbReleaseGroupId: e.match.releaseGroupMbid } : {}),
+        ...(trackTitles.size ? { trackTitles } : {}),
+      });
+    }
+    if (i % 5 === 0 || i === cands.length) process.stderr.write(`\r  ${i}/${cands.length} (${map.size} matched)`);
+  }
+  console.error('');
+  return map;
 }
 
 function bar(ratio: number, width = 20): string {
@@ -215,9 +248,10 @@ async function main(): Promise<void> {
     console.log(`Media Sommelier CLI
   sommelier reconstruct <listing.txt> --from-listing [--json] [--html out.html]
   sommelier reconstruct <dir> [--scan-limit N] [--json] [--html out.html]
-  sommelier plan <path> [--from-listing] --dest <out> [--min-confidence N] [--json]
-  sommelier organize <path> [--from-listing] --dest <out> [--execute] [--write-tags] [--min-confidence N]
-    (organize is dry-run unless --execute; --write-tags stamps corrected tags on the COPIES; originals never modified)
+  sommelier plan <path> [--from-listing] --dest <out> [--enrich] [--min-confidence N] [--json]
+  sommelier organize <path> [--from-listing] --dest <out> [--execute] [--write-tags] [--enrich] [--min-confidence N]
+    (organize is dry-run unless --execute; --enrich pulls canonical names/years/titles from MusicBrainz;
+     --write-tags stamps corrected tags on the COPIES; originals never modified)
   sommelier insights <path> [--from-listing] [--json]   collection + owner profile
   sommelier enrich <path> [--from-listing] [--limit N] [--offline] [--json]
     (match top releases to MusicBrainz — corrects title/artist/year, adds MBIDs)
@@ -242,13 +276,16 @@ async function main(): Promise<void> {
     else printReport(report);
   } else if (args.cmd === 'plan') {
     const destRoot = args.dest ?? './organized';
-    if (args.json) console.log(JSON.stringify(planOrganize(report.candidates, { destRoot, minConfidence: args.minConfidence }), null, 2));
-    else printPlan(report, destRoot, args.minConfidence);
+    const enrichment = args.enrich ? await buildEnrichment(report, args) : undefined;
+    const plan = planOrganize(report.candidates, { destRoot, minConfidence: args.minConfidence, ...(enrichment ? { enrichment } : {}) });
+    if (args.json) console.log(JSON.stringify(plan, null, 2));
+    else printPlan(plan, destRoot);
   } else if (args.cmd === 'organize') {
     const destRoot = args.dest ?? './organized';
-    const plan = planOrganize(report.candidates, { destRoot, minConfidence: args.minConfidence });
+    const enrichment = args.enrich ? await buildEnrichment(report, args) : undefined;
+    const plan = planOrganize(report.candidates, { destRoot, minConfidence: args.minConfidence, ...(enrichment ? { enrichment } : {}) });
     if (!args.execute) {
-      printPlan(report, destRoot, args.minConfidence);
+      printPlan(plan, destRoot);
       console.log(C.yellow('Dry-run only. Pass --execute to copy (originals are never modified).'));
       return;
     }
@@ -272,16 +309,18 @@ async function main(): Promise<void> {
     else printInsights(ins);
   } else if (args.cmd === 'enrich') {
     const limit = args.limit ?? 6;
-    const client = new MusicBrainzClient({ offline: args.offline });
-    console.log(C.bold(`\n🔎 Enriching top ${limit} releases via MusicBrainz${args.offline ? ' (offline cache)' : ' (rate-limited ~1/s)'}…\n`));
-    const enriched = await enrichTop(report, client, limit);
+    const mb = new MusicBrainzClient({ offline: args.offline });
+    const acoustid = new AcoustIdClient();
+    const fpFallback = !args.offline && !args.fromListing && acoustid.hasKey();
+    console.log(C.bold(`\n🔎 Enriching top ${limit} releases via MusicBrainz${args.offline ? ' (offline cache)' : ' (rate-limited)'}${fpFallback ? ' + AcoustID fallback' : ''}…\n`));
+    const enriched = await enrichTop(report, { mb, acoustid, fingerprintFallback: fpFallback, fetchTracklist: false }, limit);
     if (args.json) {
       console.log(JSON.stringify(enriched, null, 2));
     } else {
       for (const e of enriched) {
         const head = `${C.bold(e.before.artist)} — ${e.before.album}${e.before.year ? C.dim(` (${e.before.year})`) : ''}`;
         if (e.status === 'matched' && e.match) {
-          console.log(`${head}  ${C.green('✓')} ${C.dim(`[${e.match.score}]`)}`);
+          console.log(`${head}  ${C.green('✓')}${e.via === 'acoustid+mb' ? C.cyan(' (fingerprint)') : ''} ${C.dim(`[${e.match.score}]`)}`);
           const yr = e.match.year ? ` (${e.match.year})` : '';
           const ty = e.match.primaryType ? C.dim(` ${e.match.primaryType}`) : '';
           console.log(`    → ${C.cyan(`${e.match.artist} — ${e.match.album}${yr}`)}${ty}  ${C.dim(`${e.match.trackCount ?? '?'}t · mbid ${e.match.mbid.slice(0, 8)}`)}`);
@@ -289,7 +328,7 @@ async function main(): Promise<void> {
           console.log(`${head}  ${C.yellow('· no confident match')}`);
         }
       }
-      console.log(C.dim(`\nMusicBrainz: ${client.stats.network} network · ${client.stats.cacheHits} cached · ${client.stats.errors} errors`));
+      console.log(C.dim(`\nMusicBrainz: ${mb.stats.network} network · ${mb.stats.cacheHits} cached · ${mb.stats.errors} errors  |  AcoustID: ${acoustid.stats.network} network`));
     }
   } else {
     console.error(`Unknown command: ${args.cmd}`);

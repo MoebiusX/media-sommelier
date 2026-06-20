@@ -31,6 +31,31 @@ export interface MBRelease {
   score?: number;
 }
 
+export interface MBTrack {
+  position: number;
+  number?: string;
+  title: string;
+}
+export interface MBMedium {
+  position?: number;
+  format?: string;
+  'track-count'?: number;
+  tracks?: MBTrack[];
+}
+export interface MBReleaseDetail extends MBRelease {
+  media?: MBMedium[];
+}
+
+/** Pure: flatten a release's media into (disc, position, title) entries for mapping onto files. */
+export function extractTracklist(rel: MBReleaseDetail | null): Array<{ disc: number; position: number; title: string }> {
+  if (!rel?.media) return [];
+  const out: Array<{ disc: number; position: number; title: string }> = [];
+  for (const m of rel.media) {
+    for (const t of m.tracks ?? []) out.push({ disc: m.position ?? 1, position: t.position, title: t.title });
+  }
+  return out;
+}
+
 export interface MusicBrainzClientOptions {
   cacheDir?: string;
   /** If true, never hit the network — only serve cached results (offline mode). */
@@ -59,6 +84,12 @@ export class MusicBrainzClient {
     const url = `${BASE}/release?query=${encodeURIComponent(query)}&fmt=json&limit=${limit}`;
     const body = await this.getJson(url);
     return (body?.releases as MBRelease[] | undefined) ?? [];
+  }
+
+  /** Fetch a full release (incl. media + tracks) for its authoritative tracklist. */
+  async getRelease(mbid: string): Promise<MBReleaseDetail | null> {
+    const url = `${BASE}/release/${encodeURIComponent(mbid)}?fmt=json&inc=recordings`;
+    return (await this.getJson(url)) as MBReleaseDetail | null;
   }
 
   private async getJson(url: string): Promise<Record<string, unknown> | null> {
@@ -93,7 +124,7 @@ export class MusicBrainzClient {
       this.stats.errors++;
       json = null;
     }
-    await this.writeCache(url, json); // cache negatives too
+    if (json !== null) await this.writeCache(url, json); // cache real results (incl. empty); skip transient failures
     return json;
   }
 

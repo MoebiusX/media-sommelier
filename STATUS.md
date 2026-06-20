@@ -35,6 +35,22 @@ twice; lookups still 401 with it).
 
 ---
 
+## ✅ Milestone 9 — enrichment → organize (canonical names/years/titles/MBIDs)
+
+The payoff. `organize --enrich` (and `plan --enrich`) now drives the destination tree AND the written
+tags from MusicBrainz: matched albums get canonical Artist / `YYYY Album` / `Disc N` / `NN - Title`
+folders, corrected per-track titles (from the release tracklist), release year, and MB release/RG IDs.
+AcoustID **application key works** (`QHIJwZrNmy`, verified) and is wired as a fingerprint FALLBACK in
+enrichCandidate (recovers mis-tagged artists, then re-queries MB) — engaged automatically when files are
+readable. Also added MB `getRelease`/`extractTracklist`, and fixed a cache bug (auth/transient errors
+were being cached). Proven LIVE on the sample via MusicBrainz (no drive needed for planning): the plan
+fixes the original typos — Bohemian Rhapsody, Bicycle Race, Under Pressure, I Want to Break Free — with
+year 2011 and proper disc layout. 6/8 sample albums matched by tags; 35 tests green.
+
+> NOTE: `Y:\` unmounted mid-session (network drive slept), so the live copy+tag EXECUTION on real audio
+> is pending a remount — the plan/enrichment path is fully verified; `organize --execute` just needs the
+> drive back. (The walker's retries handle hiccups but not a full unmount.)
+
 ## ✅ Milestone 8 — adversarial safety review of the file-writing code (+ fixes)
 
 Ran a 3-lens adversarial review (source-immutability / corruption-idempotency / edge-failure) over the
