@@ -35,6 +35,16 @@ twice; lookups still 401 with it).
 
 ---
 
+## ✅ Milestone 8 — adversarial safety review of the file-writing code (+ fixes)
+
+Ran a 3-lens adversarial review (source-immutability / corruption-idempotency / edge-failure) over the
+copy/tag/walk code. **Verdict: the source-immutability guarantee holds** — no path writes to a source.
+It found real *destination-integrity* gaps, all now fixed + tested: honor collisions (fail, don't
+overwrite); refuse a dest inside the source tree; idempotent skip-on-exists (fixes --write-tags re-runs);
+tag-then-publish on a unique real-extension temp + fsync + temp cleanup; hash-during-copy (one source
+read, closes TOCTOU); audio-gated tagging; path-length guard. Verified live (idempotent, refuses
+dest-in-source, tags correctly). 31 tests green.
+
 ## ✅ Milestone 7 — tag-writing onto the organized copies
 
 `src/engine/organize/tag.ts` (node-taglib-sharp, pure-TS, one API across ID3/Vorbis/MP4) writes
