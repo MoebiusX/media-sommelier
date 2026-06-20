@@ -17,6 +17,7 @@ import type { AcoustIdClient } from './acoustid.js';
 import { artistCreditName, selectBestRelease } from './match.js';
 import { extractTracklist } from './musicbrainz.js';
 import { fingerprintFile } from './fpcalc.js';
+import type { Fingerprint } from './fpcalc.js';
 
 export interface EnrichOptions {
   mb: MusicBrainzClient;
@@ -25,6 +26,8 @@ export interface EnrichOptions {
   fingerprintFallback?: boolean;
   /** Fetch the matched release's full tracklist (one extra MB call per matched album). */
   fetchTracklist?: boolean;
+  /** Injectable fingerprinter (defaults to the real fpcalc) — for testing the fallback path. */
+  fingerprintFn?: (path: string) => Promise<Fingerprint>;
 }
 
 export interface EnrichedCandidate {
@@ -72,7 +75,7 @@ export async function enrichCandidate(candidate: AlbumCandidate, opts: EnrichOpt
     const file = sampleFile(candidate);
     if (file) {
       try {
-        const fp = await fingerprintFile(file);
+        const fp = await (opts.fingerprintFn ?? fingerprintFile)(file);
         const ar = await opts.acoustid.lookup(fp);
         if (ar.best?.artist) {
           const retry = await opts.mb.searchReleases(ar.best.artist, candidate.albumTitle);
