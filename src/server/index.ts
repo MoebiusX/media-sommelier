@@ -20,6 +20,7 @@ import {
   planOrganize,
   executePlan,
   walkToArray,
+  readCover,
   scanLibrary,
   computeLibraryStats,
   MusicBrainzClient,
@@ -155,6 +156,15 @@ const server = createServer(async (req, res) => {
       const p = url.searchParams.get('path');
       if (!p) { res.writeHead(400); res.end(); return; }
       return serveAudio(req, res, p);
+    }
+    if (url.pathname === '/api/cover') {
+      const p = url.searchParams.get('path');
+      if (!p) { res.writeHead(400); res.end(); return; }
+      const c = await readCover(p);
+      if (!c) { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, { 'content-type': c.mime, 'cache-control': 'max-age=86400' });
+      res.end(c.data);
+      return;
     }
     if (url.pathname === '/api/library') {
       const folder = url.searchParams.get('source');

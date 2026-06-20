@@ -16,6 +16,8 @@ export { walk, walkToArray, waitForPath } from './inventory/walk.js';
 export type { WalkOptions, WaitOptions } from './inventory/walk.js';
 export { readTags } from './inventory/tags.js';
 export type { TagInfo } from './inventory/tags.js';
+export { readCover } from './inventory/cover.js';
+export type { Cover } from './inventory/cover.js';
 export { scanLibrary } from './library/scan.js';
 export type { Track, ScanLibraryOptions } from './library/scan.js';
 export { computeLibraryStats } from './library/stats.js';

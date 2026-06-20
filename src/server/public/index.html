@@ -30,7 +30,8 @@
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; overflow:hidden; }
   details > summary { cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 12px 14px; list-style: none; }
   summary::-webkit-details-marker { display: none; } details[open] > summary { border-bottom:1px solid var(--line); }
-  .avatar { width: 40px; height: 40px; border-radius: 9px; display:grid; place-items:center; font-weight:800; color:#fff; flex:none; font-size:17px; }
+  .avatar { width: 40px; height: 40px; border-radius: 9px; display:grid; place-items:center; font-weight:800; color:#fff; flex:none; font-size:17px; position:relative; overflow:hidden; }
+  .avatar img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
   .titleline { display:flex; flex-direction:column; min-width:0; }
   .titleline .top { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .artist { font-weight: 700; } .album { color: #cdd6e0; } .year { color: var(--dim); }
@@ -153,9 +154,10 @@ function albumCard(c) {
     return head + '<table>' + rows + '</table>';
   }).join('');
   const ini = (c.albumArtist[0]||'?').toUpperCase();
+  const cover = c.discs[0]?.tracks?.[0]?.file?.path;
   return `<details class="card"><summary>
     <div class="lbar ${band(c.confidence)}-l"></div>
-    <div class="avatar" style="background:${color(c.albumArtist)}">${esc(ini)}</div>
+    <div class="avatar" style="background:${color(c.albumArtist)}">${esc(ini)}${cover?`<img src="/api/cover?path=${encodeURIComponent(cover)}" onerror="this.remove()" loading="lazy">`:''}</div>
     <div class="titleline"><div class="top"><span class="artist">${esc(c.albumArtist)}</span> — <span class="album">${esc(c.albumTitle)}</span> ${c.year?`<span class="year">(${c.year})</span>`:''}</div>
       <div class="sub">${c.totalTracks} tracks · ${c.discs.length} disc${c.discs.length>1?'s':''} · ${human(c.sizeBytes)}${c.flags.length?' · '+c.flags.map(esc).join(' '):''}</div></div>
     <span class="spacer"></span><span class="pill ${band(c.confidence)}">${c.confidence.toFixed(2)}</span></summary>
@@ -274,7 +276,7 @@ function renderRows() {
 
 // ---- Mini player ----
 function markPlaying(){ document.querySelectorAll('#libbody tr').forEach((tr)=>tr.classList.toggle('playing', Number(tr.dataset.i)===qi)); }
-function playIndex(i){ if(i<0||i>=queue.length) return; qi=i; const t=queue[i]; audio.src='/api/audio?path='+encodeURIComponent(t.path); audio.play().catch(()=>{}); $('#player').classList.add('on'); $('#nptitle').textContent=t.title||t.path; $('#npartist').textContent=t.artist||''; const ini=(t.artist||t.title||'♪')[0].toUpperCase(); $('#npav').textContent=ini; $('#npav').style.background=color(t.artist||t.title||'x'); markPlaying(); }
+function playIndex(i){ if(i<0||i>=queue.length) return; qi=i; const t=queue[i]; audio.src='/api/audio?path='+encodeURIComponent(t.path); audio.play().catch(()=>{}); $('#player').classList.add('on'); $('#nptitle').textContent=t.title||t.path; $('#npartist').textContent=t.artist||''; const ini=(t.artist||t.title||'♪')[0].toUpperCase(); $('#npav').style.background=color(t.artist||t.title||'x'); $('#npav').innerHTML=esc(ini)+`<img src="/api/cover?path=${encodeURIComponent(t.path)}" onerror="this.remove()">`; markPlaying(); }
 $('#pp').onclick=()=>{ if(audio.paused){ if(!audio.src&&queue.length)playIndex(0); else audio.play(); } else audio.pause(); };
 $('#prev').onclick=()=>playIndex(qi-1); $('#next').onclick=()=>playIndex(qi+1);
 audio.onplay=()=>$('#pp').textContent='⏸'; audio.onpause=()=>$('#pp').textContent='▶'; audio.onended=()=>playIndex(qi+1);
