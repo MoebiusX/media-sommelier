@@ -35,6 +35,17 @@ twice; lookups still 401 with it).
 
 ---
 
+## ✅ Milestone 10 — test + docs hardening (drive-swap window)
+
+While the USB drive was swapped: grew the suite **35 → 66 tests** and wrote real docs.
+- Tests: `text` helpers; `MusicBrainzClient`/`AcoustIdClient` via injected `fetch` (caching, offline,
+  error-not-cached); `enrichCandidate` orchestration via duck-typed fakes + injected `fingerprintFn`
+  (MB-tags match, AcoustID→MB fallback, no-match, tracklist, no-key); reconstruction flags
+  (compilation, no-track-numbers, completeness, partial-disc, cross-candidate duplicates + noise guard).
+- Added a small `fingerprintFn` DI seam to make the AcoustID fallback unit-testable.
+- Docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (module map, pipeline, safety guarantees),
+  [`docs/CLI.md`](docs/CLI.md) (command/flag + `.env` reference), refreshed README.
+
 ## ✅ Milestone 9 — enrichment → organize (canonical names/years/titles/MBIDs)
 
 The payoff. `organize --enrich` (and `plan --enrich`) now drives the destination tree AND the written
