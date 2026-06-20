@@ -88,6 +88,31 @@
   .pgrid a { position:relative; display:block; aspect-ratio:1; border-radius:8px; overflow:hidden; background:#1a1e27; }
   .pgrid img { width:100%; height:100%; object-fit:cover; display:block; }
   .pgrid .gps { position:absolute; top:4px; right:5px; font-size:11px; opacity:.85; }
+  /* videos */
+  .vgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; }
+  .vcard { background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; cursor:pointer; transition:filter .15s, border-color .15s; }
+  .vcard:hover { filter:brightness(1.08); border-color:var(--accent2); }
+  .vthumb { position:relative; aspect-ratio:16/9; background:#0c0e13; }
+  .vthumb img { width:100%; height:100%; object-fit:cover; display:block; }
+  .vthumb .film { width:100%; height:100%; display:grid; place-items:center; color:#3a4150; font-size:30px;
+    background:repeating-linear-gradient(90deg,#0c0e13 0 14px,#13161d 14px 18px); }
+  .vthumb .dur { position:absolute; bottom:6px; right:6px; background:rgba(0,0,0,.72); color:#fff; font-size:11px; font-variant-numeric:tabular-nums; padding:1px 6px; border-radius:5px; }
+  .vthumb .play { position:absolute; inset:0; display:grid; place-items:center; opacity:0; transition:opacity .15s; }
+  .vcard:hover .vthumb .play { opacity:1; } .vthumb .play span { background:rgba(124,58,237,.9); width:46px; height:46px; border-radius:50%; display:grid; place-items:center; font-size:18px; color:#fff; }
+  .vmeta { padding:9px 11px; }
+  .vmeta .vt { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .vmeta .vb { margin-top:5px; display:flex; gap:6px; flex-wrap:wrap; }
+  .vbadge { font-size:11px; font-weight:700; padding:1px 8px; border-radius:6px; background:#222834; color:#9aa4b2; }
+  .vbadge.res { background:#241b3a; color:var(--accent2); }
+  /* video overlay */
+  #voverlay { position:fixed; inset:0; background:rgba(6,7,10,.92); z-index:40; display:none; flex-direction:column; }
+  #voverlay.on { display:flex; }
+  #voverlay .vbar { display:flex; align-items:center; gap:12px; padding:12px 18px; color:var(--ink); }
+  #voverlay .vbar .vtitle { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #voverlay .vbar .spacer { margin-left:auto; }
+  #voverlay .vbar .vclose { background:var(--panel2); border:1px solid var(--line); color:var(--ink); border-radius:9px; padding:7px 13px; }
+  #voverlay .vstage { flex:1; display:grid; place-items:center; padding:0 18px 18px; min-height:0; }
+  #voverlay video { max-width:100%; max-height:100%; border-radius:10px; background:#000; }
 </style>
 </head>
 <body>
@@ -104,6 +129,7 @@
     <button data-tab="library">Library</button>
     <button data-tab="albums" class="active">Albums</button>
     <button data-tab="photos">Photos</button>
+    <button data-tab="videos">Videos</button>
     <button data-tab="insights">Insights</button>
     <button data-tab="organize">Organize</button>
   </div>
@@ -118,6 +144,11 @@
   <span>🔊</span><input type="range" class="vol" id="vol" min="0" max="1" step="0.01" value="1" />
 </div>
 <audio id="audio"></audio>
+
+<div id="voverlay">
+  <div class="vbar"><span class="vtitle" id="vtitle">—</span><span class="spacer"></span><button class="vclose" id="vclose">✕ Close (Esc)</button></div>
+  <div class="vstage"><video id="vid" controls playsinline></video></div>
+</div>
 
 <script>
 const $ = (s) => document.querySelector(s);
@@ -200,6 +231,10 @@ async function render() {
     view.innerHTML = '<div class="empty"><span class="spin"></span> Reading photo EXIF…</div>';
     await loadPhotos();
     renderPhotos();
+  } else if (tab === 'videos') {
+    view.innerHTML = '<div class="empty"><span class="spin"></span> Probing video metadata…</div>';
+    await loadVideos();
+    renderVideos();
   } else {
     const p = await loadPresets();
     const opts = Object.entries(p).map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join('');
@@ -303,12 +338,63 @@ function renderPhotos() {
     ${photos.photos.length>600?`<p class="hint">Showing first 600 of ${photos.photos.length.toLocaleString()}.</p>`:''}`;
 }
 
+// ---- Videos ----
+let videos = null;
+const vid = $('#vid'), voverlay = $('#voverlay');
+function resBadge(w, h) {
+  const hh = h || 0, ww = w || 0;
+  if (!hh && !ww) return '';
+  if (hh>=2160 || ww>=3840) return '4K';
+  if (hh>=1080 || ww>=1920) return '1080p';
+  if (hh>=720 || ww>=1280) return '720p';
+  if (hh>=480 || ww>=854) return '480p';
+  return 'SD';
+}
+const vext = (p) => { const e = (p.split('.').pop()||'').toLowerCase(); return e.length<=4 ? e.toUpperCase() : ''; };
+async function loadVideos() {
+  if (src()==='sample') { videos = { needsFolder:true }; return; }
+  if (videos && videos._for===src()) return;
+  const r = await (await fetch('/api/videos?source='+encodeURIComponent(src()))).json();
+  r._for = src(); videos = r;
+}
+function renderVideos() {
+  if (videos?.needsFolder) { view.innerHTML='<div class="empty">Videos probe real media files, so they need a folder.<br><br><button id="vf" class="go">📁 Pick a folder</button></div>'; $('#vf').onclick=async()=>{ await browse(); videos=null; render(); }; return; }
+  if (videos?.error) { view.innerHTML='<div class="empty warn">⚠ '+esc(videos.error)+'</div>'; return; }
+  const st = videos.stats;
+  if (!st.count) { view.innerHTML='<div class="empty">No videos found under this folder.</div>'; return; }
+  const resMix = Object.entries(st.resolutions||{}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>esc(k)+' ×'+v).join(' · ');
+  view.innerHTML = `<div class="statcard"><span><span class="b">${st.count.toLocaleString()}</span> videos</span><span class="b">${human(st.bytes)}</span><span>${fmtDur(st.totalDurationMs)}</span>${resMix?`<span>${resMix}</span>`:''}</div>
+    <div class="vgrid">${videos.videos.map((v,i)=>{
+      const res = resBadge(v.width, v.height);
+      return `<div class="vcard" data-i="${i}">
+        <div class="vthumb"><img loading="lazy" src="/api/poster?path=${encodeURIComponent(v.path)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'film',textContent:'🎬'}))">
+          ${v.durationMs?`<span class="dur">${fmtTime(v.durationMs)}</span>`:''}<div class="play"><span>▶</span></div></div>
+        <div class="vmeta"><div class="vt" title="${esc(v.title)}">${esc(v.title)}</div>
+          <div class="vb">${res?`<span class="vbadge res">${res}</span>`:''}${vext(v.path)?`<span class="vbadge">${vext(v.path)}</span>`:''}${v.videoCodec?`<span class="vbadge">${esc(v.videoCodec)}</span>`:''}</div></div>
+      </div>`;
+    }).join('')}</div>`;
+  view.querySelectorAll('.vcard').forEach((c)=>c.onclick=()=>playVideo(Number(c.dataset.i)));
+}
+function playVideo(i) {
+  const v = videos?.videos?.[i]; if (!v) return;
+  if (!audio.paused) audio.pause();
+  $('#vtitle').textContent = v.title || v.path;
+  vid.src = '/api/video?path='+encodeURIComponent(v.path);
+  voverlay.classList.add('on');
+  vid.play().catch(()=>{});
+}
+function closeVideo() { vid.pause(); vid.removeAttribute('src'); vid.load(); voverlay.classList.remove('on'); }
+$('#vclose').onclick = closeVideo;
+voverlay.onclick = (e) => { if (e.target===voverlay) closeVideo(); };
+vid.addEventListener('play', () => { if (!audio.paused) audio.pause(); });
+document.addEventListener('keydown', (e) => { if (e.key==='Escape' && voverlay.classList.contains('on')) closeVideo(); });
+
 // ---- Mini player ----
 function markPlaying(){ document.querySelectorAll('#libbody tr').forEach((tr)=>tr.classList.toggle('playing', Number(tr.dataset.i)===qi)); }
 function playIndex(i){ if(i<0||i>=queue.length) return; qi=i; const t=queue[i]; audio.src='/api/audio?path='+encodeURIComponent(t.path); audio.play().catch(()=>{}); $('#player').classList.add('on'); $('#nptitle').textContent=t.title||t.path; $('#npartist').textContent=t.artist||''; const ini=(t.artist||t.title||'♪')[0].toUpperCase(); $('#npav').style.background=color(t.artist||t.title||'x'); $('#npav').innerHTML=esc(ini)+`<img src="/api/cover?path=${encodeURIComponent(t.path)}" onerror="this.remove()">`; markPlaying(); }
 $('#pp').onclick=()=>{ if(audio.paused){ if(!audio.src&&queue.length)playIndex(0); else audio.play(); } else audio.pause(); };
 $('#prev').onclick=()=>playIndex(qi-1); $('#next').onclick=()=>playIndex(qi+1);
-audio.onplay=()=>$('#pp').textContent='⏸'; audio.onpause=()=>$('#pp').textContent='▶'; audio.onended=()=>playIndex(qi+1);
+audio.onplay=()=>{ $('#pp').textContent='⏸'; if(!vid.paused) vid.pause(); }; audio.onpause=()=>$('#pp').textContent='▶'; audio.onended=()=>playIndex(qi+1);
 audio.ontimeupdate=()=>{ if(audio.duration){ $('#seek').value=String(Math.round(audio.currentTime/audio.duration*1000)); $('#cur').textContent=fmtTime(audio.currentTime*1000); $('#dur').textContent=fmtTime(audio.duration*1000); } };
 $('#seek').oninput=()=>{ if(audio.duration) audio.currentTime=Number($('#seek').value)/1000*audio.duration; };
 $('#vol').oninput=()=>{ audio.volume=Number($('#vol').value); };
