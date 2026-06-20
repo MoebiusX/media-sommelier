@@ -7,7 +7,8 @@
  *   npm run ui    →    http://localhost:4178
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +20,8 @@ import {
   planOrganize,
   executePlan,
   walkToArray,
+  scanLibrary,
+  computeLibraryStats,
   MusicBrainzClient,
   AcoustIdClient,
   enrichCandidate,
@@ -26,7 +29,42 @@ import {
   type MediaFileRecord,
   type ReconstructionReport,
   type AlbumEnrichment,
+  type Track,
 } from '../engine/index.js';
+
+const AUDIO_MIME: Record<string, string> = {
+  mp3: 'audio/mpeg', flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac',
+  ogg: 'audio/ogg', opus: 'audio/ogg', wav: 'audio/wav', wma: 'audio/x-ms-wma', aiff: 'audio/aiff',
+};
+
+/** Stream an audio file with HTTP Range support so the player can seek. */
+async function serveAudio(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+  const ext = (path.split('.').pop() ?? '').toLowerCase();
+  const type = AUDIO_MIME[ext];
+  if (!type) { res.writeHead(415); res.end(); return; }
+  let size: number;
+  try { size = (await stat(path)).size; } catch { res.writeHead(404); res.end(); return; }
+  const range = req.headers.range;
+  const m = range ? /bytes=(\d+)-(\d*)/.exec(range) : null;
+  if (m) {
+    const start = Number(m[1]);
+    const end = m[2] ? Number(m[2]) : size - 1;
+    res.writeHead(206, { 'content-type': type, 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
+    createReadStream(path, { start, end }).pipe(res);
+  } else {
+    res.writeHead(200, { 'content-type': type, 'accept-ranges': 'bytes', 'content-length': size });
+    createReadStream(path).pipe(res);
+  }
+}
+
+/** Lean track record for the wire (drop fields the grid doesn't need). */
+function leanTrack(t: Track) {
+  return {
+    path: t.path, artist: t.albumArtist || t.artist || '', album: t.album || '', title: t.title,
+    genre: t.genre || '', year: t.year ?? null, trackNo: t.trackNo ?? null, discNo: t.discNo ?? null,
+    durationMs: t.durationMs ?? null, bitrateKbps: t.bitrateKbps ?? null, lossless: !!t.lossless, sizeBytes: t.sizeBytes,
+  };
+}
 
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -113,6 +151,18 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === '/api/presets') return json(res, ORGANIZE_PRESETS);
     if (url.pathname === '/api/pick-folder') return json(res, { path: await pickFolder() });
+    if (url.pathname === '/api/audio') {
+      const p = url.searchParams.get('path');
+      if (!p) { res.writeHead(400); res.end(); return; }
+      return serveAudio(req, res, p);
+    }
+    if (url.pathname === '/api/library') {
+      const folder = url.searchParams.get('source');
+      if (!folder || folder === 'sample') return json(res, { needsFolder: true });
+      const limit = Number(url.searchParams.get('limit') ?? 0) || undefined;
+      const tracks = await scanLibrary(folder, { ...(limit ? { limit } : {}) });
+      return json(res, { root: folder, stats: computeLibraryStats(tracks), tracks: tracks.map(leanTrack) });
+    }
 
     const source = url.searchParams.get('source');
     if (url.pathname === '/api/reconstruct') return json(res, reconstruct(await inventoryFor(source)));
