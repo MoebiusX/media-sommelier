@@ -26,6 +26,8 @@ export { computeLibraryStats } from './library/stats.js';
 export type { LibraryStats } from './library/stats.js';
 export { readPhoto, scanPhotos } from './library/photos.js';
 export type { Photo, PhotoStats, PhotoScanResult } from './library/photos.js';
+export { readVideo, scanVideos, computeVideoStats, resolutionBucket } from './library/videos.js';
+export type { Video, VideoStats, VideoScanResult } from './library/videos.js';
 export { parseName } from './reconstruct/parseName.js';
 export { reconstruct } from './reconstruct/reconstruct.js';
 export { planOrganize, sanitizeSegment, ORGANIZE_PRESETS } from './organize/plan.js';
