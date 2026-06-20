@@ -23,13 +23,14 @@ describe('owner profiling — honest gating', () => {
   it('declines classic-vs-new without enough known years (needs V1 enrichment)', () => {
     expect(ins.owner.classicVsNew.computable).toBe(false);
   });
-  it('infers archetypes with confidence + why', () => {
-    expect(ins.owner.archetypes.length).toBeGreaterThan(0);
+  it('describes the collection with neutral, non-judgmental observations', () => {
     const labels = ins.owner.archetypes.map((a) => a.label.toLowerCase()).join(' | ');
-    expect(labels).toMatch(/convenience|greatest-hits|sampler/);
-    for (const a of ins.owner.archetypes) {
-      expect(a.confidence).toBeGreaterThan(0);
-      expect(a.why.length).toBeGreaterThan(0);
-    }
+    expect(labels).toMatch(/compilation|lossy|lossless|mixed/);
+    for (const a of ins.owner.archetypes) expect(a.confidence).toBeGreaterThan(0);
+  });
+
+  it('does NOT label the owner a "sampler" from orphan artifacts', () => {
+    const labels = ins.owner.archetypes.map((a) => a.label.toLowerCase()).join(' | ');
+    expect(labels).not.toMatch(/sampler|completionist|convenience|casual/);
   });
 });

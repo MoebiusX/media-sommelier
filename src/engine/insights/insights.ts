@@ -147,34 +147,27 @@ function profileOwner(
     };
   }
 
-  // archetypes (ranked, rule-based, with confidence + why)
+  // NEUTRAL, descriptive observations ABOUT THE COLLECTION — not character judgments about the owner.
+  // Deliberately NO "sampler/completionist" inference: that was derived from orphan-ratio, which is a
+  // grouping artifact (inconsistent album tags) and meaningless on playlist folders — it shouldn't
+  // judge anyone. Format/compilation/era are facts about the files; everything else is left unsaid.
   const archetypes: OwnerSignal[] = [];
   const compRatio = candidates.length ? candidates.filter((c) => c.flags.includes('possible-compilation')).length / candidates.length : 0;
   const losslessRatio = audio.length ? audio.filter((a) => isLosslessExt(a.ext)).length / audio.length : 0;
-  const orphanRatio = candidates.length ? candidates.filter((c) => c.flags.includes('orphan')).length / candidates.length : 0;
 
   if (compRatio >= 0.4) {
     archetypes.push({
-      label: 'Curated / casual listener (greatest-hits driven)',
+      label: `Compilation-heavy (${Math.round(compRatio * 100)}% best-of / hits)`,
       confidence: Math.min(0.85, 0.5 + compRatio / 2),
-      why: `${Math.round(compRatio * 100)}% of releases are best-of/greatest-hits/compilations — favors known hits over deep album cuts.`,
+      why: 'Many releases are greatest-hits / compilations rather than studio albums.',
     });
   }
   if (losslessRatio < 0.05) {
-    archetypes.push({
-      label: 'Convenience over fidelity',
-      confidence: 0.8,
-      why: `${Math.round(losslessRatio * 100)}% lossless — an entirely lossy (MP3) library, not an audiophile archive.`,
-    });
+    archetypes.push({ label: 'Lossy formats (all MP3/AAC)', confidence: 0.8, why: `${Math.round(losslessRatio * 100)}% lossless.` });
   } else if (losslessRatio > 0.6) {
-    archetypes.push({ label: 'Audiophile / fidelity-focused', confidence: 0.7, why: `${Math.round(losslessRatio * 100)}% lossless.` });
-  }
-  if (orphanRatio >= 0.2) {
-    archetypes.push({
-      label: 'Sampler, not a completionist',
-      confidence: 0.6,
-      why: `${Math.round(orphanRatio * 100)}% of "albums" are a single track — whole records reduced to their one famous song.`,
-    });
+    archetypes.push({ label: `Lossless-heavy (${Math.round(losslessRatio * 100)}% FLAC/ALAC)`, confidence: 0.7, why: 'Mostly lossless formats.' });
+  } else if (losslessRatio > 0) {
+    archetypes.push({ label: `Mixed formats (${Math.round(losslessRatio * 100)}% lossless)`, confidence: 0.5, why: 'A blend of lossy and lossless.' });
   }
   archetypes.sort((a, b) => b.confidence - a.confidence);
 

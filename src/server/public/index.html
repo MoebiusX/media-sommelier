@@ -180,8 +180,8 @@ async function render() {
       ${m('Numbered', c.numberedReleaseRatio, (c.numberedReleaseRatio*100).toFixed(0)+'%')}
       <div class="metric"><span class="lbl">Formats</span><span>${Object.entries(c.formats).map(([k,v])=>esc(k)+' ×'+v).join(' · ')}</span></div>
       <div class="metric"><span class="lbl">Top artists</span><span>${c.topArtists.slice(0,6).map((a)=>esc(a.artist)+' ('+a.tracks+'t)').join(' · ')}</span></div>
-      <h3>Owner profile <span class="hint">heuristic · 100% local</span></h3>
-      ${o.archetypes.map((a)=>`<div class="arch"><b>${esc(a.label)}</b> <span class="pill hi">${a.confidence.toFixed(2)}</span><div class="why">${esc(a.why)}</div></div>`).join('')}
+      <h3>Collection character <span class="hint">describes the files, not you · 100% local</span></h3>
+      ${o.archetypes.map((a)=>`<div class="arch"><b>${esc(a.label)}</b><div class="why">${esc(a.why)}</div></div>`).join('')}
       <div class="arch gated"><b>Build history:</b> ${o.buildHistory.reliable?'reliable':'withheld'}<div class="why">${esc(o.buildHistory.reason)}</div></div>
       <div class="arch gated"><b>Classic vs new:</b> ${o.classicVsNew.computable?Math.round((o.classicVsNew.classicPct||0)*100)+'% pre-'+o.classicVsNew.cutoff:'not computable'}<div class="why">${esc(o.classicVsNew.reason)}</div></div>`;
   } else if (tab === 'library') {
