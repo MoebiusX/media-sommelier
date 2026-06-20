@@ -6,7 +6,7 @@
 > uncut design output is preserved in [`design/DESIGN_PASS.md`](design/DESIGN_PASS.md).
 >
 > Companion docs: [`../README.md`](../README.md) (vision) · [`SAMPLE_SCAN.md`](SAMPLE_SCAN.md)
-> (the real-world problem, measured on `Y:\Car Playlists\Selection`).
+> (the real-world problem, measured on `X:\Music`).
 
 ---
 
@@ -27,7 +27,7 @@ intact across reissues and compilations.
 Every failure mode the engine must handle already appears in one slice of your drive (146 tracks, 1.3 GB,
 0% lossless — see [`SAMPLE_SCAN.md`](SAMPLE_SCAN.md)). These are now the project's first regression fixtures:
 
-| Real example (Y:\Car Playlists\Selection) | Failure mode | What the engine must do |
+| Real example (X:\Music) | Failure mode | What the engine must do |
 |---|---|---|
 | `Pink Floyd - Echoes Cd 1` + `Echoes Cd 2` as two **sibling top-level folders** | Split multi-disc release | Re-merge sibling disc folders into one 2-disc release **before** scoring (multi-disc set-cover) |
 | `Led Zeppelin …\…(Remasters 2CD)\CD 1`,`CD 2` (correct nesting) vs Pink Floyd (broken) | Disc nesting ambiguity | Detect disc folders whether nested under an album or flattened as siblings |
@@ -255,7 +255,7 @@ Thin end-to-end pipe on a **small real library** (your `Selection` folder, a few
   originals untouched. Get this in week 4–6.
 
 ### Phase V0.5 — Dogfood & kill/pivot gate (≈ weeks 6–8)
-- Run V0 on your full `Y:\Car Playlists` collection. Manually inspect reconstructed albums + the copied
+- Run V0 on your full `X:\Music` collection. Manually inspect reconstructed albums + the copied
   tree. Iterate heuristics on **real failures** (Pink Floyd split, Supertramp no-numbers, the typos).
 - **Decision gate:** is offline reconstruction quality good enough to justify building enrichment,
   provenance, scale, and insights? *Define a precision/recall bar on real data before scaling.* If it's

@@ -4,7 +4,7 @@ import { waitForPath } from '../src/engine/index.js';
 describe('waitForPath', () => {
   it('resolves true as soon as the path appears', async () => {
     let checks = 0;
-    const ok = await waitForPath('Y:/Music', {
+    const ok = await waitForPath('X:/Music', {
       intervalMs: 1,
       exists: async () => ++checks >= 3, // appears on the 3rd poll
       sleep: async () => {},
@@ -15,7 +15,7 @@ describe('waitForPath', () => {
 
   it('resolves false after the timeout when the path never appears', async () => {
     let waits = 0;
-    const ok = await waitForPath('Y:/Music', {
+    const ok = await waitForPath('X:/Music', {
       intervalMs: 10,
       timeoutMs: 30,
       exists: async () => false,

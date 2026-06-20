@@ -1,6 +1,6 @@
 # Quick scan (directory-listing only)
 
-Source: test/fixtures/real-world/car-playlists-selection.dir.txt
+Source: test/fixtures/sample/sample-collection.dir.txt
 Audio files: **146**   |   Audio bytes: **1.3 GB**   |   Album-folders: **12**
 
 ## Format / volume

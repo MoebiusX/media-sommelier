@@ -13,7 +13,7 @@ Two input modes for every catalog command:
 ### `reconstruct <path>`
 Rebuild album candidates and print them (artist — album, confidence, flags, "why grouped" evidence).
 ```
-npx tsx src/cli/index.ts reconstruct "Y:/Music" 
+npx tsx src/cli/index.ts reconstruct "X:/Music" 
 npx tsx src/cli/index.ts reconstruct sample.dir.txt --from-listing --html report.html
 ```
 Flags: `--from-listing`, `--json`, `--html <file>` (write a self-contained HTML report),
@@ -23,7 +23,7 @@ Flags: `--from-listing`, `--json`, `--html <file>` (write a self-contained HTML 
 Collection metrics (format/lossless, compilation density, completeness, decades, top artists) + owner
 profiling (archetypes with confidence, and *honestly gated* build-history / classic-vs-new).
 ```
-npx tsx src/cli/index.ts insights "Y:/Music" --from-listing
+npx tsx src/cli/index.ts insights "X:/Music" --from-listing
 ```
 Flags: `--from-listing`, `--json`.
 
@@ -31,7 +31,7 @@ Flags: `--from-listing`, `--json`.
 Match the top releases to MusicBrainz (corrects title/artist/year, adds MBIDs); AcoustID fingerprint
 fallback for the misses when files are readable + a key is set.
 ```
-npx tsx src/cli/index.ts enrich "Y:/Music" --limit 8
+npx tsx src/cli/index.ts enrich "X:/Music" --limit 8
 ```
 Flags: `--from-listing`, `--limit <n>` (releases to enrich, default 6), `--offline` (cache only),
 `--json`.
@@ -40,7 +40,7 @@ Flags: `--from-listing`, `--limit <n>` (releases to enrich, default 6), `--offli
 Dry-run the organize mapping — show where files *would* go. With `--enrich`, destination paths use
 canonical MusicBrainz names/years.
 ```
-npx tsx src/cli/index.ts plan "Y:/Music" --dest "D:/Organized" --enrich
+npx tsx src/cli/index.ts plan "X:/Music" --dest "D:/Organized" --enrich
 ```
 Flags: `--from-listing`, `--dest <out>`, `--enrich`, `--min-confidence <n>`, `--json`.
 
@@ -50,9 +50,9 @@ modified.** With `--enrich`, matched albums get canonical `Artist/YYYY Album/Dis
 with `--write-tags`, corrected tags are stamped onto the copies.
 ```
 # preview
-npx tsx src/cli/index.ts organize "Y:/Music" --dest "D:/Organized" --enrich
+npx tsx src/cli/index.ts organize "X:/Music" --dest "D:/Organized" --enrich
 # do it
-npx tsx src/cli/index.ts organize "Y:/Music" --dest "D:/Organized" --execute --enrich --write-tags
+npx tsx src/cli/index.ts organize "X:/Music" --dest "D:/Organized" --execute --enrich --write-tags
 ```
 Flags: `--from-listing`, `--dest <out>` (must be **outside** the source tree), `--execute`,
 `--write-tags`, `--enrich`, `--min-confidence <n>`.
@@ -60,7 +60,7 @@ Flags: `--from-listing`, `--dest <out>` (must be **outside** the source tree), `
 ### `fingerprint <audio-file>`
 Compute a Chromaprint fingerprint for one file; if an AcoustID application key is set, look it up.
 ```
-npx tsx src/cli/index.ts fingerprint "Y:/Music/song.mp3"
+npx tsx src/cli/index.ts fingerprint "X:/Music/song.mp3"
 ```
 
 ## Configuration (`.env`, gitignored)

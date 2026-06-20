@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { parseDirListing, reconstruct, computeInsights, planOrganize, walkToArray, type MediaFileRecord } from '../engine/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SAMPLE = 'test/fixtures/real-world/car-playlists-selection.dir.txt';
+const SAMPLE = 'test/fixtures/sample/sample-collection.dir.txt';
 const PORT = Number(process.env.PORT ?? 4178);
 
 async function inventoryFor(source: string | null): Promise<MediaFileRecord[]> {

@@ -17,11 +17,11 @@ with folder/tag/acoustic heuristics as fallback.
 
 ### Real example (this repo's test fixture)
 
-A single slice of a real drive — `Y:\Car Playlists\Selection` — already shows every failure mode.
+A single slice of a real drive — `X:\Music` — already shows every failure mode.
 Run the diagnostic yourself:
 
 ```bash
-node tools/scan-dirlisting.mjs test/fixtures/real-world/car-playlists-selection.dir.txt
+node tools/scan-dirlisting.mjs test/fixtures/sample/sample-collection.dir.txt
 ```
 
 It finds, from **filenames alone** (146 tracks, 1.3 GB, 0% lossless):
@@ -62,23 +62,25 @@ The generated report lives in [`docs/SAMPLE_SCAN.md`](docs/SAMPLE_SCAN.md).
 ## Repo layout
 
 ```
-docs/        design docs + generated sample scan
+src/engine/  pure-TS engine: inventory · reconstruct · enrich · organize · insights
+src/cli/     command-line interface
+src/server/  local web UI (server + single-page app)
+docs/        architecture, plan, CLI reference + generated sample scan
 tools/       standalone diagnostics (dir-listing scanner)
-test/        fixtures incl. the real-world Car Playlists sample
-packages/    (engine core, app, cli — landing with the implementation plan)
+test/        vitest suites + the bundled sample collection fixture
 ```
 
 ## Status — engine working end-to-end (V0 + V1 enrichment)
 
-The engine is built, tested (**60 tests**), and proven on real audio — it has organized a real album
+The engine is built, tested (**76 tests**), and proven on real audio — it has organized a real album
 end-to-end (reconstruct → enrich → copy → tag) with originals untouched. Docs:
 [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`CLI.md`](docs/CLI.md) ·
-[`IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) · running log in [`STATUS.md`](STATUS.md).
+[`IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
 ```bash
 npm install
-npm test                                                   # 60 tests
-LISTING=test/fixtures/real-world/car-playlists-selection.dir.txt
+npm test                                                   # 76 tests
+LISTING=test/fixtures/sample/sample-collection.dir.txt
 
 # offline, no setup — runs on the bundled real-data sample:
 npx tsx src/cli/index.ts reconstruct $LISTING --from-listing             # rebuild albums
@@ -87,7 +89,7 @@ npx tsx src/cli/index.ts enrich      $LISTING --limit 8                  # Music
 npx tsx src/cli/index.ts plan        $LISTING --from-listing --enrich --dest D:/Organized
 
 # on a real mounted library: omit --from-listing and point at a folder
-npx tsx src/cli/index.ts organize "Y:/Music" --dest "D:/Organized" --execute --enrich --write-tags
+npx tsx src/cli/index.ts organize "X:/Music" --dest "D:/Organized" --execute --enrich --write-tags
 ```
 
 `--from-listing` parses a Windows `dir /s` dump (how we test on real data without the drive mounted);

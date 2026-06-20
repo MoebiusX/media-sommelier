@@ -1,8 +1,7 @@
 # Architecture
 
 How the Media Sommelier engine is put together today (V0/V1), and the decisions behind it. For the
-forward-looking plan see [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md); for the running build log
-see [`../STATUS.md`](../STATUS.md).
+forward-looking plan see [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
 
 ## Shape
 
@@ -118,7 +117,7 @@ The product's #1 promise: **source files are never mutated.** Hardened after an 
 
 ## Testing
 
-74 tests (`vitest`), all network/disk-free except two real-FS integration tests:
+76 tests (`vitest`), all network/disk-free except two real-FS integration tests:
 
 - pure logic: text helpers, `parseName`, reconstruction on the real sample, the match scorer, tracklist
   extraction, AcoustID response parsing, plan tags/enrichment overrides, multi-disc recovery (collapsed

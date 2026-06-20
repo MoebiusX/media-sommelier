@@ -17,7 +17,7 @@
     "test:watch": "vitest",
     "cli": "tsx src/cli/index.ts",
     "ui": "tsx src/server/index.ts",
-    "reconstruct:sample": "tsx src/cli/index.ts reconstruct test/fixtures/real-world/car-playlists-selection.dir.txt --from-listing"
+    "reconstruct:sample": "tsx src/cli/index.ts reconstruct test/fixtures/sample/sample-collection.dir.txt --from-listing"
   },
   "dependencies": {
     "music-metadata": "^10.6.0",

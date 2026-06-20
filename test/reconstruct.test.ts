@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { parseDirListing, reconstruct, parseName, sanitizeSegment } from '../src/engine/index.js';
 import type { AlbumCandidate } from '../src/engine/index.js';
 
-const FIXTURE = 'test/fixtures/real-world/car-playlists-selection.dir.txt';
+const FIXTURE = 'test/fixtures/sample/sample-collection.dir.txt';
 const records = parseDirListing(readFileSync(FIXTURE, 'utf8'));
 const report = reconstruct(records);
 

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { parseDirListing, reconstruct, computeInsights } from '../src/engine/index.js';
 
-const records = parseDirListing(readFileSync('test/fixtures/real-world/car-playlists-selection.dir.txt', 'utf8'));
+const records = parseDirListing(readFileSync('test/fixtures/sample/sample-collection.dir.txt', 'utf8'));
 const ins = computeInsights(records, reconstruct(records));
 
 describe('collection insights', () => {

@@ -12,7 +12,7 @@
 10/30/2024  05:02 PM         8,283,342 110-led_zeppelin-the_ocean.mp3
               10 File(s)     94,227,710 bytes
 
- Directory of Y:\Car Playlists\Selection\Led Zeppelin - Discografia 1969 - 2007\2007 The Songs Remains The Same (Remasters 2CD)\CD 2
+ Directory of X:\Music\Led Zeppelin - Discografia 1969 - 2007\2007 The Songs Remains The Same (Remasters 2CD)\CD 2
 
 04/02/2023  04:29 PM    <DIR>          .
 04/02/2023  04:29 PM    <DIR>          ..
@@ -23,21 +23,21 @@
 10/30/2024  05:02 PM        21,101,122 205-led_zeppelin-whole_lotta_love.mp3
                5 File(s)    106,402,839 bytes
 
- Directory of Y:\Car Playlists\Selection\Marc Antoine
+ Directory of X:\Music\Marc Antoine
 
 12/27/2023  11:01 PM    <DIR>          .
 12/27/2023  10:58 PM    <DIR>          ..
 04/02/2023  04:29 PM    <DIR>          Mediterraneo
                0 File(s)              0 bytes
 
- Directory of Y:\Car Playlists\Selection\Marc Antoine\Mediterraneo
+ Directory of X:\Music\Marc Antoine\Mediterraneo
 
 04/02/2023  04:29 PM    <DIR>          .
 12/27/2023  11:01 PM    <DIR>          ..
 10/30/2024  04:55 PM         7,752,561 Marc Antoine - Mediterrneo.mp3
                1 File(s)      7,752,561 bytes
 
- Directory of Y:\Car Playlists\Selection\MIDNIGHT OIL - The Best Of
+ Directory of X:\Music\MIDNIGHT OIL - The Best Of
 
 04/02/2023  04:29 PM    <DIR>          .
 12/27/2023  10:58 PM    <DIR>          ..
@@ -62,7 +62,7 @@
 12/30/2020  06:39 AM            29,184 Thumbs.db
               19 File(s)     91,189,532 bytes
 
- Directory of Y:\Car Playlists\Selection\Pink Floyd - Echoes Cd 1
+ Directory of X:\Music\Pink Floyd - Echoes Cd 1
 
 04/02/2023  04:29 PM    <DIR>          .
 12/27/2023  10:58 PM    <DIR>          ..
@@ -81,7 +81,7 @@
 10/30/2024  04:18 PM        16,824,238 Pink Floyd - (13)Sorrow.mp3
               13 File(s)    147,591,225 bytes
 
- Directory of Y:\Car Playlists\Selection\Pink Floyd - Echoes Cd 2
+ Directory of X:\Music\Pink Floyd - Echoes Cd 2
 
 04/02/2023  04:29 PM    <DIR>          .
 12/27/2023  10:58 PM    <DIR>          ..
@@ -100,7 +100,7 @@
 10/30/2024  04:18 PM         6,550,799 Pink Floyd - (13)Bike.mp3
               13 File(s)    150,982,363 bytes
 
- Directory of Y:\Car Playlists\Selection\QUEEN Greatest Hits I II & III The Platinum Collection
+ Directory of X:\Music\QUEEN Greatest Hits I II & III The Platinum Collection
 
 12/27/2023  11:00 PM    <DIR>          .
 12/27/2023  10:58 PM    <DIR>          ..
@@ -109,7 +109,7 @@
 04/02/2023  04:29 PM    <DIR>          Greatest Hits III
                0 File(s)              0 bytes
 
- Directory of Y:\Car Playlists\Selection\QUEEN Greatest Hits I II & III The Platinum Collection\Greatest Hits I
+ Directory of X:\Music\QUEEN Greatest Hits I II & III The Platinum Collection\Greatest Hits I
 
 04/02/2023  04:29 PM    <DIR>          .
 12/27/2023  11:00 PM    <DIR>          ..
@@ -132,7 +132,7 @@
 10/30/2024  04:55 PM         7,243,904 17 - We Are The Champions.mp3
               17 File(s)    140,327,582 bytes
 
- Directory of Y:\Car Playlists\Selection\QUEEN Greatest Hits I II & III The Platinum Collection\Greatest Hits II
+ Directory of X:\Music\QUEEN Greatest Hits I II & III The Platinum Collection\Greatest Hits II
 
 04/02/2023  04:29 PM    <DIR>          .
 12/27/2023  11:00 PM    <DIR>          ..
@@ -155,7 +155,7 @@
 10/30/2024  04:55 PM         9,683,072 17 - One Vision.mp3
               17 File(s)    182,333,044 bytes
 
- Directory of Y:\Car Playlists\Selection\QUEEN Greatest Hits I II & III The Platinum Collection\Greatest Hits III
+ Directory of X:\Music\QUEEN Greatest Hits I II & III The Platinum Collection\Greatest Hits III
 
 04/02/2023  04:29 PM    <DIR>          .
 12/27/2023  11:00 PM    <DIR>          ..
@@ -178,7 +178,7 @@
 10/30/2024  04:55 PM        10,363,008 17 - Thank God It's Christmas.mp3
               17 File(s)    177,213,568 bytes
 
- Directory of Y:\Car Playlists\Selection\Sting & The Police - The Very Best
+ Directory of X:\Music\Sting & The Police - The Very Best
 
 04/02/2023  04:29 PM    <DIR>          .
 12/27/2023  10:58 PM    <DIR>          ..
@@ -199,7 +199,7 @@
 10/30/2024  04:19 PM        10,916,115 15-Roxanne '97 - Puff Daddy Remix.mp3
               15 File(s)    151,437,491 bytes
 
- Directory of Y:\Car Playlists\Selection\Supertramp - The Very Best Of (2 CD's)
+ Directory of X:\Music\Supertramp - The Very Best Of (2 CD's)
 
 12/27/2023  10:59 PM    <DIR>          .
 12/27/2023  10:58 PM    <DIR>          ..
@@ -207,7 +207,7 @@
 01/27/2024  11:11 PM    <DIR>          Supertramp - Very Best of (volume2)
                0 File(s)              0 bytes
 
- Directory of Y:\Car Playlists\Selection\Supertramp - The Very Best Of (2 CD's)\Supertramp - Very Best of (volume1)
+ Directory of X:\Music\Supertramp - The Very Best Of (2 CD's)\Supertramp - Very Best of (volume1)
 
 03/29/2025  07:26 PM    <DIR>          .
 12/27/2023  10:59 PM    <DIR>          ..
@@ -229,7 +229,7 @@
 10/30/2024  04:55 PM         4,993,612 Supertramp - The logical Song.mp3
               16 File(s)     94,770,063 bytes
 
- Directory of Y:\Car Playlists\Selection\Supertramp - The Very Best Of (2 CD's)\Supertramp - Very Best of (volume2)
+ Directory of X:\Music\Supertramp - The Very Best Of (2 CD's)\Supertramp - Very Best of (volume2)
 
 01/27/2024  11:11 PM    <DIR>          .
 12/27/2023  10:59 PM    <DIR>          ..
@@ -250,14 +250,14 @@
 10/30/2024  04:56 PM         7,895,134 Supertramp - Waiting so long.mp3
               15 File(s)     91,882,495 bytes
 
- Directory of Y:\Car Playlists\Selection\The Eagles
+ Directory of X:\Music\The Eagles
 
 12/27/2023  10:58 PM    <DIR>          .
 12/27/2023  10:58 PM    <DIR>          ..
 02/05/2024  11:10 PM    <DIR>          Top 100
                0 File(s)              0 bytes
 
- Directory of Y:\Car Playlists\Selection\The Eagles\Top 100
+ Directory of X:\Music\The Eagles\Top 100
 
 02/05/2024  11:10 PM    <DIR>          .
 12/27/2023  10:58 PM    <DIR>          ..
@@ -265,7 +265,7 @@
 10/30/2024  04:17 PM        17,488,712 The Eagles - Hotel California.mp3
                2 File(s)     17,870,333 bytes
 
- Directory of Y:\Car Playlists\Selection\The Police
+ Directory of X:\Music\The Police
 
 12/27/2023  10:59 PM    <DIR>          .
 12/27/2023  10:58 PM    <DIR>          ..
