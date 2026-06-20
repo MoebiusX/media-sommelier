@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cli": "tsx src/cli/index.ts",
+    "ui": "tsx src/server/index.ts",
     "reconstruct:sample": "tsx src/cli/index.ts reconstruct test/fixtures/real-world/car-playlists-selection.dir.txt --from-listing"
   },
   "dependencies": {
