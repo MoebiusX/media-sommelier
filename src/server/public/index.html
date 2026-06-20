@@ -23,6 +23,13 @@
   .hint { color: var(--dim); font-size: 13px; } code { color:#cdd6e0; background:#0c0e13; padding:1px 5px; border-radius:5px; font-size:12px; }
   .kpis { display: flex; gap: 16px; flex-wrap: wrap; margin: 4px 0 12px; color: var(--dim); font-size: 14px; }
   .kpis b { color: var(--ink); }
+  .header-top { display:flex; align-items:flex-start; gap:16px; }
+  .header-top .brand { flex:1; }
+  /* compact media-type summary, top-right once scanned */
+  .mediasum { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding-top:4px; }
+  .mediasum .chip { display:inline-flex; align-items:center; gap:6px; background:var(--panel2); border:1px solid var(--line); border-radius:20px; padding:4px 11px; font-size:12.5px; color:var(--dim); transition:border-color .15s, color .15s; }
+  .mediasum .chip b { color:var(--ink); font-variant-numeric:tabular-nums; }
+  .mediasum .chip.pending { opacity:.6; }
   .tabs { display: flex; gap: 4px; }
   .tabs button { background: transparent; color: var(--dim); border-radius: 9px 9px 0 0; padding: 9px 16px; font-weight:600; }
   .tabs button.active { background: var(--bg); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent2); }
@@ -57,7 +64,12 @@
   .example { font-family: ui-monospace, monospace; font-size:12.5px; color:#9fb0c3; background:#0c0e13; border:1px solid var(--line); border-radius:8px; padding:8px 10px; overflow:auto; white-space:nowrap; }
   .check { display:flex; align-items:center; gap:6px; color:#cdd6e0; font-size:14px; cursor:pointer; }
   .tree { font-family: ui-monospace, monospace; font-size:12.5px; color:#9fb0c3; background:#0c0e13; border:1px solid var(--line); border-radius:8px; padding:10px 12px; max-height:420px; overflow:auto; }
-  .empty { color: var(--dim); padding: 56px 0; text-align: center; }
+  .empty { color: var(--dim); padding: 56px 0; text-align: center; animation: fade .25s ease; }
+  .empty .ico { font-size: 38px; display:block; margin-bottom: 12px; opacity:.85; }
+  .empty .lead { color: var(--ink); font-size: 16px; font-weight:600; margin-bottom:6px; }
+  .empty .sub2 { max-width: 460px; margin: 0 auto 16px; line-height:1.5; }
+  .empty button { margin-top: 4px; }
+  @keyframes fade { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform:none; } }
   .spin { display:inline-block; width:14px; height:14px; border:2px solid #3a3f4b; border-top-color:var(--accent2); border-radius:50%; animation:s .7s linear infinite; vertical-align:-2px; } @keyframes s{to{transform:rotate(360deg)}}
   .ok { color: var(--hi); } .warn { color: var(--lo); }
   footer { color:var(--dim); font-size:12px; text-align:center; padding:24px 24px 96px; border-top:1px solid var(--line); }
@@ -152,28 +164,56 @@
   #plightbox .lcap .lk { color:var(--ink); }
   #plightbox .lcap a { color:var(--accent2); text-decoration:none; }
   #plightbox .lcap a:hover { text-decoration:underline; }
+  /* view transition + focus visibility */
+  #view { animation: fade .22s ease; }
+  :focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; border-radius: 6px; }
+  button:focus-visible, .tabs button:focus-visible { outline-offset: 1px; }
+  .pgrid a:focus-visible, .vcard:focus-visible { outline-offset: -2px; }
+  @media (prefers-reduced-motion: reduce) { *, #view, .empty { animation: none !important; transition: none !important; } }
+  /* responsive — narrow widths */
+  @media (max-width: 760px) {
+    header { padding: 12px 14px 0; }
+    main { padding: 16px 14px 96px; }
+    .header-top { flex-direction: column; gap: 8px; }
+    .mediasum { padding-top: 0; }
+    input#source { min-width: 0; }
+    select { min-width: 0; }
+    .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tabs button { white-space: nowrap; padding: 9px 12px; }
+    .pgrid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+    .vgrid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+    #player { gap: 8px; padding: 8px 12px; flex-wrap: wrap; }
+    #player .np { width: 100%; order: -1; }
+    #player .seekwrap { order: 1; min-width: 140px; }
+    #player .vol, #player > span { display: none; }
+    #queuepop { right: 8px; left: 8px; width: auto; bottom: 96px; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <div class="brand"><span style="font-size:22px">🍷</span><h1>Media Sommelier</h1><span class="tag">reconstruct · enrich · organize</span></div>
+  <div class="header-top">
+    <div class="brand"><span style="font-size:22px">🍷</span><h1>Media Sommelier</h1><span class="tag">reconstruct · enrich · organize</span></div>
+    <div class="mediasum" id="mediasum" role="status" aria-live="polite" hidden></div>
+  </div>
   <div class="controls">
-    <input id="source" type="text" value="sample" placeholder="sample  —or—  a music folder" />
+    <input id="source" type="text" value="sample" placeholder="sample  —or—  a music folder" aria-label="Media folder path" />
     <button id="browse" class="ghost">📁 Browse…</button>
     <button id="scan" class="go">Scan</button>
     <span class="hint">Type <code>sample</code> for the bundled demo, or pick a real folder.</span>
   </div>
   <div class="kpis" id="kpis"></div>
-  <div class="tabs" id="tabs" hidden>
-    <button data-tab="library">Library</button>
-    <button data-tab="albums" class="active">Albums</button>
-    <button data-tab="photos">Photos</button>
-    <button data-tab="videos">Videos</button>
-    <button data-tab="insights">Insights</button>
-    <button data-tab="organize">Organize</button>
+  <div class="tabs" id="tabs" role="tablist" hidden>
+    <button data-tab="library" role="tab" aria-selected="false">Library</button>
+    <button data-tab="albums" class="active" role="tab" aria-selected="true">Albums</button>
+    <button data-tab="photos" role="tab" aria-selected="false">Photos</button>
+    <button data-tab="videos" role="tab" aria-selected="false">Videos</button>
+    <button data-tab="insights" role="tab" aria-selected="false">Insights</button>
+    <button data-tab="organize" role="tab" aria-selected="false">Organize</button>
   </div>
 </header>
-<main><div id="view"><div class="empty"><span class="spin"></span> Loading the sample collection…</div></div></main>
+<main><div id="view" role="tabpanel"><div class="empty"><span class="spin"></span> Loading the sample collection…</div></div></main>
 <footer>All processing is local. Originals are never modified — organize only ever copies. · <a href="https://github.com/MoebiusX/media-sommelier">github.com/MoebiusX/media-sommelier</a></footer>
 
 <div id="player" class="idle">
@@ -217,27 +257,57 @@ const src = () => $('#source').value.trim() || 'sample';
 const q = () => 'source=' + encodeURIComponent(src());
 function color(s){ let h=0; for(const ch of s) h=(h*31+ch.charCodeAt(0))%360; return `hsl(${h} 45% 38%)`; }
 
+// Consistent UI states shared across Library / Photos / Videos.
+const loadingState = (msg) => `<div class="empty"><span class="spin"></span> ${esc(msg)}</div>`;
+const errorState = (msg) => `<div class="empty warn">⚠ ${esc(msg)}</div>`;
+const emptyState = (ico, msg) => `<div class="empty"><span class="ico">${ico}</span><div class="sub2">${esc(msg)}</div></div>`;
+// "needs a real folder" state — the bundled sample has no real files, so these tabs need one.
+function needsFolderState(ico, what, onPick) {
+  view.innerHTML = `<div class="empty"><span class="ico">${ico}</span>
+    <div class="lead">${esc(what)} needs a real folder</div>
+    <div class="sub2">The bundled <code>sample</code> is a filename listing with no actual media, so ${esc(what.toLowerCase())} (and the player) need a real folder on this machine.</div>
+    <button id="nfpick" class="go">📁 Browse for a folder…</button></div>`;
+  $('#nfpick').onclick = onPick;
+}
+
 async function browse() {
   const b = $('#browse'); const old = b.textContent; b.disabled = true; b.textContent = 'Opening…';
   try { const r = await (await fetch('/api/pick-folder')).json(); if (r.path) $('#source').value = r.path; }
   finally { b.disabled = false; b.textContent = old; }
 }
 
+// Compact top-right media-type summary. Music count is known from the reconstruct report;
+// photo/video counts fill in once those tabs are opened (no extra scans up front).
+function renderMediaSummary() {
+  const el = $('#mediasum');
+  if (!report) { el.hidden = true; return; }
+  const isSample = src()==='sample';
+  const music = report.summary?.audioFiles ?? 0;
+  const chips = [`<span class="chip" title="Music files">🎵 <b>${music.toLocaleString()}</b> music</span>`];
+  if (isSample) { el.hidden = false; el.innerHTML = chips.join(''); return; } // sample has no real photos/videos
+  const pc = (photos && !photos.needsFolder && !photos.error) ? (photos.stats?.count ?? 0) : null;
+  const vc = (videos && !videos.needsFolder && !videos.error) ? (videos.stats?.count ?? 0) : null;
+  chips.push(pc==null ? `<span class="chip pending" title="Open the Photos tab to count">🖼️ photos</span>` : `<span class="chip" title="Photos">🖼️ <b>${pc.toLocaleString()}</b> photos</span>`);
+  chips.push(vc==null ? `<span class="chip pending" title="Open the Videos tab to count">🎬 videos</span>` : `<span class="chip" title="Videos">🎬 <b>${vc.toLocaleString()}</b> videos</span>`);
+  el.hidden = false; el.innerHTML = chips.join('');
+}
+
 async function scan() {
   $('#scan').disabled = true;
-  view.innerHTML = '<div class="empty"><span class="spin"></span> Scanning + reconstructing…</div>';
+  view.innerHTML = loadingState('Scanning + reconstructing…');
   try {
     report = await (await fetch('/api/reconstruct?' + q())).json();
     if (report.error) throw new Error(report.error);
-    insights = null;
+    insights = null; library = null; photos = null; videos = null; // re-keyed per source
     const s = report.summary;
     kpis.innerHTML = `<span><b>${s.candidates}</b> releases</span><span><b>${s.audioFiles}</b> files</span>
       <span>${human(s.audioBytes)}</span><span>${s.multiDisc} multi-disc</span><span>${s.orphans} orphan</span>
       <span>${s.needsReview} need review</span><span>lossless ${(s.losslessRatio*100).toFixed(0)}%</span>`;
     tabs.hidden = false;
+    renderMediaSummary();
     if (!audio.src) showPlayer(); // present-but-idle once a library is loaded
     render();
-  } catch (e) { view.innerHTML = '<div class="empty warn">⚠ ' + esc(e.message) + '</div>'; }
+  } catch (e) { view.innerHTML = errorState(e.message); }
   finally { $('#scan').disabled = false; }
 }
 
@@ -262,12 +332,12 @@ async function loadInsights(){ if(!insights) insights = await (await fetch('/api
 async function loadPresets(){ if(!presets) presets = await (await fetch('/api/presets')).json(); return presets; }
 
 async function render() {
-  [...tabs.children].forEach((b)=>b.classList.toggle('active', b.dataset.tab===tab));
+  [...tabs.children].forEach((b)=>{ const on=b.dataset.tab===tab; b.classList.toggle('active', on); b.setAttribute('aria-selected', on?'true':'false'); });
   if (tab === 'albums') {
     view.innerHTML = report.candidates.map(albumCard).join('') +
       (report.duplicates.length ? `<h3>Duplicate candidates (verify by fingerprint)</h3><div class="panel">${report.duplicates.map((d)=>`<div>· <b>${esc(d.titleKey)}</b> ×${d.occurrences.length} — ${esc(d.occurrences.map((o)=>o.album).join(' · '))}</div>`).join('')}</div>` : '');
   } else if (tab === 'insights') {
-    view.innerHTML = '<div class="empty"><span class="spin"></span> Computing insights…</div>';
+    view.innerHTML = loadingState('Computing insights…');
     const { collection:c, owner:o } = await loadInsights();
     const m = (lbl,r,txt)=>`<div class="metric"><span class="lbl">${lbl}</span><span class="bar"><span style="width:${Math.round(r*100)}%"></span></span><span>${txt}</span></div>`;
     view.innerHTML = `<h3>Collection</h3>
@@ -281,15 +351,15 @@ async function render() {
       <div class="arch gated"><b>Build history:</b> ${o.buildHistory.reliable?'reliable':'withheld'}<div class="why">${esc(o.buildHistory.reason)}</div></div>
       <div class="arch gated"><b>Classic vs new:</b> ${o.classicVsNew.computable?Math.round((o.classicVsNew.classicPct||0)*100)+'% pre-'+o.classicVsNew.cutoff:'not computable'}<div class="why">${esc(o.classicVsNew.reason)}</div></div>`;
   } else if (tab === 'library') {
-    view.innerHTML = '<div class="empty"><span class="spin"></span> Reading tags across the folder…</div>';
+    if (src()!=='sample') view.innerHTML = loadingState('Reading tags across the folder…');
     await loadLibrary();
     renderLibrary();
   } else if (tab === 'photos') {
-    view.innerHTML = '<div class="empty"><span class="spin"></span> Reading photo EXIF…</div>';
+    if (src()!=='sample') view.innerHTML = loadingState('Reading photo EXIF…');
     await loadPhotos();
     renderPhotos();
   } else if (tab === 'videos') {
-    view.innerHTML = '<div class="empty"><span class="spin"></span> Probing video metadata…</div>';
+    if (src()!=='sample') view.innerHTML = loadingState('Probing video metadata…');
     await loadVideos();
     renderVideos();
   } else {
@@ -317,7 +387,7 @@ async function render() {
     $('#scheme').onchange = exa; exa();
     $('#destbrowse').onclick = async (e)=>{ e.target.disabled=true; const r=await (await fetch('/api/pick-folder')).json(); if(r.path)$('#dest').value=r.path; e.target.disabled=false; };
     $('#preview').onclick = async () => {
-      $('#planout').innerHTML = '<div class="empty"><span class="spin"></span> Planning…' + ($('#enrich').checked?' (querying MusicBrainz)':'') + '</div>';
+      $('#planout').innerHTML = loadingState('Planning…' + ($('#enrich').checked?' (querying MusicBrainz)':''));
       const u = `/api/plan?${q()}&dest=${encodeURIComponent($('#dest').value)}&template=${$('#scheme').value}&enrich=${$('#enrich').checked?1:0}`;
       const r = await (await fetch(u)).json();
       $('#planout').innerHTML = `<p><b>${r.actions}</b> files would be copied${r.collisions?` · <span class="warn">${r.collisions} collisions</span>`:''}${r.skipped?` · ${r.skipped} skipped`:''}.</p>
@@ -325,7 +395,7 @@ async function render() {
     };
     $('#run').onclick = async () => {
       if (!confirm(`Copy the organized library into:\n\n${$('#dest').value}\n\nOriginals stay untouched. Continue?`)) return;
-      $('#planout').innerHTML = '<div class="empty"><span class="spin"></span> Copying + verifying…</div>';
+      $('#planout').innerHTML = loadingState('Copying + verifying…');
       const r = await (await fetch('/api/organize', { method:'POST', headers:{'content-type':'application/json'},
         body: JSON.stringify({ source: src(), dest: $('#dest').value, template: $('#scheme').value, enrich: $('#enrich').checked, writeTags: $('#wtags').checked, execute: true }) })).json();
       if (r.error) { $('#planout').innerHTML = `<p class="warn">⚠ ${esc(r.error)}</p>`; return; }
@@ -348,8 +418,8 @@ async function loadLibrary() {
 }
 
 function renderLibrary() {
-  if (library?.needsFolder) { view.innerHTML = '<div class="empty">The Library grid reads real files, so it needs a music folder.<br><br><button id="lf" class="go">📁 Pick a folder</button></div>'; $('#lf').onclick = async()=>{ await browse(); library=null; render(); }; return; }
-  if (library?.error) { view.innerHTML = '<div class="empty warn">⚠ '+esc(library.error)+'</div>'; return; }
+  if (library?.needsFolder) { needsFolderState('🎵', 'The Library', async()=>{ await browse(); library=null; render(); }); return; }
+  if (library?.error) { view.innerHTML = errorState(library.error); return; }
   const st = library.stats;
   const cols = [['artist','Artist'],['title','Title'],['album','Album'],['genre','Genre'],['durationMs','Time','num'],['bitrateKbps','Bitrate','num'],['sizeBytes','Size','num']];
   view.innerHTML = `<div class="statcard"><span><span class="b">${st.tracks.toLocaleString()}</span> tracks</span><span><span class="b">${st.albums.toLocaleString()}</span> albums</span><span><span class="b">${st.artists.toLocaleString()}</span> artists</span><span><span class="b">${st.genres}</span> genres</span><span class="b">${human(st.totalBytes)}</span><span>${fmtDur(st.totalDurationMs)}</span><span>lossless ${(st.losslessRatio*100).toFixed(0)}%</span>${library.cache?`<span class="hint">⚡ ${library.cache.cached.toLocaleString()} cached · ${library.cache.scanned.toLocaleString()} read${library.cache.removed?` · ${library.cache.removed} removed`:''}</span>`:''}</div>
@@ -389,10 +459,10 @@ const PHOTO_CAP = 600;
 let shownPhotos = [];   // flat list (capped) — indices match lightbox navigation
 const dayHdr = (iso) => { const d=new Date(iso); return d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'2-digit',year:'numeric'}); };
 function renderPhotos() {
-  if (photos?.needsFolder) { view.innerHTML='<div class="empty">Photos read EXIF from real files, so they need a folder.<br><br><button id="pf" class="go">📁 Pick a folder</button></div>'; $('#pf').onclick=async()=>{ await browse(); photos=null; render(); }; return; }
-  if (photos?.error) { view.innerHTML='<div class="empty warn">⚠ '+esc(photos.error)+'</div>'; return; }
+  if (photos?.needsFolder) { needsFolderState('🖼️', 'Photos', async()=>{ await browse(); photos=null; render(); }); return; }
+  if (photos?.error) { view.innerHTML = errorState(photos.error); return; }
   const st = photos.stats;
-  if (!st.count) { view.innerHTML='<div class="empty">No images found under this folder.</div>'; return; }
+  if (!st.count) { view.innerHTML = emptyState('🖼️', 'No images found under this folder.'); return; }
   const dr = st.dateRange.from ? `${st.dateRange.from.slice(0,10)} → ${(st.dateRange.to||'').slice(0,10)}` : '';
   // Group the (capped) list by day; undated last. Preserve flat index for the lightbox.
   shownPhotos = photos.photos.slice(0, PHOTO_CAP);
@@ -408,7 +478,8 @@ function renderPhotos() {
   view.innerHTML = `<div class="statcard"><span><span class="b">${st.count.toLocaleString()}</span> photos</span><span class="b">${human(st.bytes)}</span><span>${st.withGps} geotagged</span>${dr?`<span>${dr}</span>`:''}${st.cameras.length?`<span>${st.cameras.slice(0,3).map(c=>esc(c.name)+' ('+c.count+')').join(' · ')}</span>`:''}</div>
     ${sections}
     ${photos.photos.length>PHOTO_CAP?`<p class="hint">Showing first ${PHOTO_CAP} of ${photos.photos.length.toLocaleString()}.</p>`:''}`;
-  view.querySelectorAll('.pgrid a[data-idx]').forEach(a => a.onclick = () => openLightbox(Number(a.dataset.idx)));
+  view.querySelectorAll('.pgrid a[data-idx]').forEach(a => { a.tabIndex = 0; a.onclick = () => openLightbox(Number(a.dataset.idx)); a.onkeydown = (e) => { if (e.key==='Enter'||e.key===' ') { e.preventDefault(); openLightbox(Number(a.dataset.idx)); } }; });
+  renderMediaSummary();
 }
 
 // ---- Photo lightbox ----
@@ -461,10 +532,10 @@ async function loadVideos() {
   r._for = src(); videos = r;
 }
 function renderVideos() {
-  if (videos?.needsFolder) { view.innerHTML='<div class="empty">Videos probe real media files, so they need a folder.<br><br><button id="vf" class="go">📁 Pick a folder</button></div>'; $('#vf').onclick=async()=>{ await browse(); videos=null; render(); }; return; }
-  if (videos?.error) { view.innerHTML='<div class="empty warn">⚠ '+esc(videos.error)+'</div>'; return; }
+  if (videos?.needsFolder) { needsFolderState('🎬', 'Videos', async()=>{ await browse(); videos=null; render(); }); return; }
+  if (videos?.error) { view.innerHTML = errorState(videos.error); return; }
   const st = videos.stats;
-  if (!st.count) { view.innerHTML='<div class="empty">No videos found under this folder.</div>'; return; }
+  if (!st.count) { view.innerHTML = emptyState('🎬', 'No videos found under this folder.'); return; }
   const resMix = Object.entries(st.resolutions||{}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>esc(k)+' ×'+v).join(' · ');
   view.innerHTML = `<div class="statcard"><span><span class="b">${st.count.toLocaleString()}</span> videos</span><span class="b">${human(st.bytes)}</span><span>${fmtDur(st.totalDurationMs)}</span>${resMix?`<span>${resMix}</span>`:''}</div>
     <div class="vgrid">${videos.videos.map((v,i)=>{
@@ -476,7 +547,8 @@ function renderVideos() {
           <div class="vb">${res?`<span class="vbadge res">${res}</span>`:''}${vext(v.path)?`<span class="vbadge">${vext(v.path)}</span>`:''}${v.videoCodec?`<span class="vbadge">${esc(v.videoCodec)}</span>`:''}</div></div>
       </div>`;
     }).join('')}</div>`;
-  view.querySelectorAll('.vcard').forEach((c)=>c.onclick=()=>playVideo(Number(c.dataset.i)));
+  view.querySelectorAll('.vcard').forEach((c)=>{ c.tabIndex = 0; c.setAttribute('role','button'); c.onclick=()=>playVideo(Number(c.dataset.i)); c.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); playVideo(Number(c.dataset.i)); } }; });
+  renderMediaSummary();
 }
 function playVideo(i) {
   const v = videos?.videos?.[i]; if (!v) return;
@@ -587,6 +659,14 @@ document.addEventListener('keydown',(e)=>{
 });
 
 tabs.onclick = (e) => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; render(); } };
+// Arrow-key navigation across tabs (ARIA tablist convention).
+tabs.addEventListener('keydown', (e) => {
+  if (e.key!=='ArrowRight' && e.key!=='ArrowLeft') return;
+  const btns = [...tabs.children]; const cur = btns.findIndex((b)=>b.dataset.tab===tab);
+  if (cur<0) return; e.preventDefault();
+  const nxt = e.key==='ArrowRight' ? (cur+1)%btns.length : (cur-1+btns.length)%btns.length;
+  tab = btns[nxt].dataset.tab; btns[nxt].focus(); render();
+});
 $('#scan').onclick = scan; $('#browse').onclick = browse;
 $('#source').addEventListener('keydown', (e)=>{ if(e.key==='Enter') scan(); });
 scan(); // auto-load the sample so the page is never empty

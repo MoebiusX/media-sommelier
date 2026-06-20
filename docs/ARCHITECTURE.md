@@ -29,10 +29,19 @@ src/
       fpcalc.ts              # Chromaprint fingerprint adapter (vendored fpcalc)
       match.ts               # pure release-matching scorer
       enrich.ts              # orchestration: MB-by-tags → AcoustID fallback → tracklist
+    library/
+      catalog.ts             # scanLibraryCached: JSON tag cache keyed by path+size+mtime (data/catalogs)
+      scan.ts                # scan a folder → Track[] (music-metadata tag reads)
+      stats.ts               # computeLibraryStats (tracks/albums/artists/genres/lossless/…)
+      photos.ts              # scanPhotos: EXIF (exifr) → day/camera/GPS stats
+      videos.ts              # scanVideos / readVideo: ffprobe metadata (duration/res/codec)
     insights/insights.ts     # collection metrics + owner profiling (with honest gating)
     report/html.ts           # self-contained HTML report
     index.ts                 # public API barrel
   cli/index.ts               # commands: reconstruct, plan, organize, insights, enrich, fingerprint
+  server/
+    index.ts                 # zero-framework Node http server (Range streaming, native folder picker)
+    public/index.html        # single-page dark UI: tabs + grid + mini player + lightbox + video overlay
 ```
 
 ## The pipeline
@@ -105,6 +114,29 @@ The product's #1 promise: **source files are never mutated.** Hardened after an 
   up its temp; a tag failure never fails the copy.
 - **Path-length guard** keeps destinations under ~`MAX_PATH`.
 
+## The UI / server layer
+
+`src/server/index.ts` is a **zero-framework Node `http` server** (`npm run ui` → :4178) and a single-page
+app in `src/server/public/index.html`. It is a thin renderer over the same engine — an Electron shell would
+host the identical page + engine. Because it runs on the user's own machine it can pop a **native Windows
+folder picker** (`FolderBrowserDialog` via PowerShell) and actually execute the organize copy.
+
+- **Library + catalog cache** — `/api/library` calls `scanLibraryCached`, which reads tags through an on-disk
+  JSON cache keyed by `path+size+mtime` under `data/catalogs/`. Unchanged files are served from cache, so a
+  re-scan of a large library only reads the files that actually changed (the UI shows cached/scanned counts).
+- **Mini player + Range streaming** — `/api/audio` and `/api/video` stream with HTTP `Range` support (one
+  `serveFile` helper, two MIME maps) so the `<audio>`/`<video>` elements can seek. The player has a queue,
+  shuffle/repeat, persisted prefs, and keyboard shortcuts; audio and the video overlay are mutually exclusive.
+- **Photos + lightbox** — `/api/photos` returns `scanPhotos` EXIF; the gallery groups by day and opens a
+  full-screen lightbox with arrow-key navigation and map links for geotagged shots. `/api/image` streams
+  the original (read-only, MIME-guarded).
+- **Videos + posters** — `/api/videos` returns `scanVideos` (ffprobe) metadata. `/api/poster` extracts one
+  frame ~10% in via `ffmpeg` to a cached jpeg under `data/posters/` — **best-effort and source-read-only**:
+  if ffmpeg is missing or extraction fails it returns 404 and the UI falls back to a film-strip placeholder.
+- **Graceful degradation** — the bundled `sample` is a filename listing with no real bytes, so Library /
+  Photos / Videos / player return a `needsFolder` state and the UI prompts for a real folder. Any unavailable
+  native binary degrades to a placeholder rather than crashing.
+
 ## Key technology decisions
 
 | Decision | Choice | Why |
@@ -132,7 +164,7 @@ The product's #1 promise: **source files are never mutated.** Hardened after an 
 ## Current limitations (deferred, by design)
 
 - No persistent catalog DB yet (SQLite is planned); reconstruction is in-memory per run.
-- No Electron shell yet (CLI only).
+- No Electron shell yet (the local web UI + CLI are the front-ends; Electron would reuse the same page).
 - Reconstruction is heuristic; MusicBrainz/AcoustID provide the authoritative corrections.
 - Confidence weights and match thresholds are hand-tuned, not yet corpus-calibrated.
 - CUE/single-file album images are out of scope for v1 (would be quarantined, not split).

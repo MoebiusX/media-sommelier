@@ -51,6 +51,28 @@ The generated report lives in [`docs/SAMPLE_SCAN.md`](docs/SAMPLE_SCAN.md).
 | Scale | Hundreds of thousands to 1M+ items |
 | Media types | Music (priority #1), images, video |
 
+## The local web UI
+
+`npm run ui` serves a single-page app at <http://localhost:4178> — a dark, keyboard-friendly desktop-style
+shell over the engine. Type `sample` for the bundled filename-only demo, or **Browse** to point at a real
+folder (the sample has no actual media, so the Library, Photos, Videos and player tabs ask for a real folder
+and say so). A compact media-type summary (music / photos / videos counts) appears top-right once scanned.
+
+- **Library** — every track as a sortable, filterable grid (artist/title/album/genre/time/bitrate/size),
+  backed by an on-disk **tag cache** (keyed by path+size+mtime) so re-scans are near-instant. Click any row
+  to play it in the built-in **mini player**: play/pause, prev/next, seek, volume, shuffle, repeat
+  (off/all/one), an "Up Next" queue, persisted volume/shuffle/repeat, and full keyboard control
+  (Space, ←/→, ↑/↓).
+- **Albums** — the reconstruction view: scattered files rebuilt into release candidates with confidence,
+  a "why grouped" evidence trace, multi-disc merges, orphans, and duplicate candidates.
+- **Photos** — EXIF-driven gallery grouped by day, with camera/GPS stats and a full-screen **lightbox**
+  (arrow-key navigation, map links for geotagged shots).
+- **Videos** — a poster grid (frames extracted on demand to `data/posters/`, never touching the source)
+  with resolution/codec/duration badges and an in-app player overlay (HTTP Range streaming, so it seeks).
+- **Insights** — collection metrics (lossless %, formats, top artists) and on-device owner profiling.
+- **Organize** — pick a naming scheme + destination, preview the dry-run plan, then copy into a clean tree
+  (originals never touched, optional MusicBrainz enrichment and tag-writing onto the copies).
+
 ## What it tells you, after a scan
 
 - **About the collection:** dominant styles/genres, total volume, format & lossless breakdown,
