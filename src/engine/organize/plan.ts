@@ -36,7 +36,22 @@ export interface OrganizeOptions {
   maxPathLength?: number;
   /** Enrichment overrides by candidate id — when present, drive both the dest path and the written tags. */
   enrichment?: Map<string, AlbumEnrichment>;
+  /**
+   * Folder/file naming template. Tokens: {albumArtist} {artist} {album} {year} {disc} {track} {title}.
+   * `/` separates folders; the last segment is the filename (extension appended automatically).
+   * Empty tokens (e.g. unknown {year}, single-disc {disc}) collapse away. Defaults to ORGANIZE_PRESETS['artist-year-album'].
+   * A "Disc N" folder is auto-inserted for multi-disc releases even if the template omits {disc}, to avoid collisions.
+   */
+  template?: string;
 }
+
+/** Ready-made organize schemes the UI offers. */
+export const ORGANIZE_PRESETS: Record<string, { label: string; template: string }> = {
+  'artist-year-album': { label: 'Artist / [Year] Album / NN - Title', template: '{albumArtist}/{year} {album}/{disc}/{track} - {title}' },
+  'artist-album': { label: 'Artist / Album / NN - Title', template: '{albumArtist}/{album}/{track} - {title}' },
+  'compilation': { label: 'Artist / Album / NN - Track Artist - Title', template: '{albumArtist}/{album}/{disc}/{track} - {artist} - {title}' },
+  'flat': { label: 'Flat: Artist - Album - NN - Title', template: '{albumArtist} - {album} - {track} - {title}' },
+};
 
 export interface OrganizeAction {
   candidateId: string;
@@ -69,6 +84,40 @@ export function sanitizeSegment(s: string): string {
 }
 
 const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+interface TemplateCtx {
+  albumArtist: string;
+  artist: string;
+  album: string;
+  year?: number;
+  title: string;
+  position: number;
+  discNo: number;
+}
+
+/**
+ * Render a template into sanitized path segments. Token values are sanitized individually (so they can't
+ * inject path separators), literal template characters (like " - ") are preserved, empty segments drop out.
+ */
+function renderTemplate(tpl: string, ctx: TemplateCtx, multiDisc: boolean): string[] {
+  const vals: Record<string, string> = {
+    albumArtist: sanitizeSegment(ctx.albumArtist),
+    artist: sanitizeSegment(ctx.artist || ctx.albumArtist),
+    album: sanitizeSegment(ctx.album),
+    title: sanitizeSegment(ctx.title || `Track ${ctx.position}`),
+    year: ctx.year ? String(ctx.year) : '',
+    disc: multiDisc ? `Disc ${ctx.discNo}` : '',
+    track: pad2(ctx.position),
+  };
+  const rendered = tpl.replace(/\{(\w+)\}/g, (_, k: string) => (k in vals ? vals[k]! : ''));
+  const segs = rendered.split('/').map((s) => s.replace(/\s{2,}/g, ' ').trim()).filter((s) => s.length > 0);
+  // guarantee disc separation for multi-disc releases even if the template omits {disc}
+  if (multiDisc && !tpl.includes('{disc}') && segs.length > 0) {
+    const file = segs.pop()!;
+    segs.push(`Disc ${ctx.discNo}`, file);
+  }
+  return segs;
+}
 
 type Tracklist = NonNullable<AlbumEnrichment['tracklist']>;
 
@@ -207,6 +256,7 @@ export function planOrganize(candidates: AlbumCandidate[], opts: OrganizeOptions
   const sep = opts.sep ?? '/';
   const minConf = opts.minConfidence ?? 0;
   const maxPathLength = opts.maxPathLength ?? 255;
+  const template = opts.template ?? ORGANIZE_PRESETS['artist-year-album']!.template;
   const actions: OrganizeAction[] = [];
   const skipped: OrganizePlan['skipped'] = [];
   const destSeen = new Map<string, string[]>();
@@ -220,9 +270,6 @@ export function planOrganize(candidates: AlbumCandidate[], opts: OrganizeOptions
     const effArtist = enr?.artist ?? c.albumArtist;
     const effAlbum = enr?.album ?? c.albumTitle;
     const effYear = enr?.year ?? c.year;
-    const artistSeg = sanitizeSegment(effArtist);
-    const albumLabel = effYear ? `${effYear} ${effAlbum}` : effAlbum;
-    const albumSeg = sanitizeSegment(albumLabel);
     const effDiscs = resolveDiscs(c, enr);
     const discCount = effDiscs.length;
     const multiDisc = discCount > 1;
@@ -231,12 +278,13 @@ export function planOrganize(candidates: AlbumCandidate[], opts: OrganizeOptions
       for (const t of disc.tracks) {
         const ext = extOf(t.file.name);
         const effTitle = enr?.trackTitles?.get(`${disc.discNo}:${t.position}`) ?? t.title;
-        const titleSeg = sanitizeSegment(effTitle || `Track ${t.position}`);
-        const trackName = `${pad2(t.position)} - ${titleSeg}${ext ? `.${ext}` : ''}`;
-        const segs = [artistSeg, albumSeg];
-        if (multiDisc) segs.push(`Disc ${disc.discNo}`);
-        segs.push(trackName);
-        const destRelPath = segs.join(sep);
+        const segs = renderTemplate(template, { albumArtist: effArtist, artist: effArtist, album: effAlbum, ...(effYear != null ? { year: effYear } : {}), title: effTitle, position: t.position, discNo: disc.discNo }, multiDisc);
+        if (segs.length === 0) {
+          skipped.push({ candidateId: c.id, reason: 'template produced an empty path' });
+          continue;
+        }
+        const fileSeg = segs.pop()! + (ext ? `.${ext}` : '');
+        const destRelPath = [...segs, fileSeg].join(sep);
         const destPath = `${opts.destRoot}${sep}${destRelPath}`;
         if (destPath.length > maxPathLength) {
           skipped.push({ candidateId: c.id, reason: `destination path too long (${destPath.length} > ${maxPathLength} chars): ${destRelPath}` });

@@ -5,54 +5,71 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Media Sommelier</title>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --bg:#0e1014; --panel:#161922; --panel2:#1d212c; --line:#262b36; --ink:#e8eaed; --dim:#8b95a3; --accent:#7c3aed; --accent2:#a855f7; --hi:#2ecc71; --mid:#f1c40f; --lo:#e74c3c; }
   * { box-sizing: border-box; }
-  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; background: #0f1115; color: #e6e6e6; }
-  header { padding: 18px 24px; background: #171a21; border-bottom: 1px solid #262b36; position: sticky; top: 0; z-index: 5; }
-  h1 { margin: 0 0 10px; font-size: 20px; }
-  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  input[type=text] { background: #0f1115; border: 1px solid #2b313d; color: #e6e6e6; border-radius: 8px; padding: 8px 11px; min-width: 320px; }
-  button { background: #6d28d9; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 600; cursor: pointer; }
-  button.ghost { background: #222834; color: #cdd6e0; }
-  button:disabled { opacity: .5; cursor: default; }
-  .hint { color: #7f8a99; font-size: 13px; }
-  main { max-width: 1000px; margin: 0 auto; padding: 18px 24px 60px; }
-  .kpis { display: flex; gap: 18px; flex-wrap: wrap; margin: 6px 0 16px; color: #9aa4b2; font-size: 14px; }
-  .kpis b { color: #e6e6e6; }
-  .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
-  .tabs button { background: #222834; color: #9aa4b2; }
-  .tabs button.active { background: #6d28d9; color: #fff; }
-  .card { background: #171a21; border: 1px solid #262b36; border-radius: 10px; margin: 9px 0; }
-  .card.hi { border-left: 4px solid #2ecc71; } .card.mid { border-left: 4px solid #f1c40f; } .card.lo { border-left: 4px solid #e74c3c; }
-  details > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 11px 14px; list-style: none; }
-  summary::-webkit-details-marker { display: none; }
-  .artist { font-weight: 700; } .album { color: #cdd6e0; } .year { color: #7f8a99; }
-  .meta { color: #7f8a99; font-size: 13px; margin-left: auto; }
-  .pill { font-variant-numeric: tabular-nums; padding: 2px 9px; border-radius: 20px; font-size: 12px; font-weight: 700; }
-  .pill.hi { background: #10371f; color: #2ecc71; } .pill.mid { background: #3a3210; color: #f1c40f; } .pill.lo { background: #3a1717; color: #e74c3c; }
-  .flag { display: inline-block; background: #222834; color: #9aa4b2; border-radius: 6px; padding: 1px 7px; font-size: 11px; margin: 2px; }
-  .body { padding: 0 14px 12px; }
-  .evidence { color: #8b95a3; font-size: 13px; margin: 4px 0 8px; padding-left: 18px; }
-  .disc { color: #9aa4b2; font-size: 13px; margin: 8px 0 4px; font-weight: 600; }
-  table { width: 100%; border-collapse: collapse; } td { padding: 3px 6px; border-bottom: 1px solid #20252f; }
-  .pos { color: #7f8a99; width: 34px; text-align: right; } .sz { color: #7f8a99; text-align: right; width: 84px; }
-  .bar { height: 10px; background: #222834; border-radius: 6px; overflow: hidden; display: inline-block; width: 180px; vertical-align: middle; }
-  .bar > span { display: block; height: 100%; background: #6d28d9; }
-  .metric { margin: 8px 0; } .metric .lbl { display: inline-block; width: 150px; color: #9aa4b2; }
-  .arch { background: #171a21; border: 1px solid #262b36; border-left: 4px solid #2ecc71; border-radius: 10px; padding: 10px 14px; margin: 8px 0; }
-  .arch .why { color: #8b95a3; font-size: 13px; }
-  .gated { border-left-color: #f1c40f; }
-  code { color: #cdd6e0; font-size: 13px; }
-  .empty { color: #7f8a99; padding: 40px 0; text-align: center; }
+  body { font: 15px/1.55 system-ui, -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--ink); }
+  a { color: var(--accent2); }
+  header { padding: 16px 24px 0; background: linear-gradient(180deg,#1a1322, #161922 70%); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  h1 { margin: 0; font-size: 19px; letter-spacing:.2px; } .brand .tag { color: var(--dim); font-size: 13px; }
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+  input[type=text], select { background: #0c0e13; border: 1px solid #2b313d; color: var(--ink); border-radius: 9px; padding: 9px 11px; font: inherit; }
+  input#source { min-width: 360px; flex: 1; }
+  select { min-width: 280px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 9px; padding: 9px 15px; font-weight: 600; cursor: pointer; transition: filter .15s; }
+  button:hover:not(:disabled){ filter: brightness(1.12); } button:disabled { opacity: .5; cursor: default; }
+  button.ghost { background: var(--panel2); color: #cdd6e0; border:1px solid var(--line); }
+  button.go { background: linear-gradient(135deg,var(--accent),var(--accent2)); }
+  .hint { color: var(--dim); font-size: 13px; } code { color:#cdd6e0; background:#0c0e13; padding:1px 5px; border-radius:5px; font-size:12px; }
+  .kpis { display: flex; gap: 16px; flex-wrap: wrap; margin: 4px 0 12px; color: var(--dim); font-size: 14px; }
+  .kpis b { color: var(--ink); }
+  .tabs { display: flex; gap: 4px; }
+  .tabs button { background: transparent; color: var(--dim); border-radius: 9px 9px 0 0; padding: 9px 16px; font-weight:600; }
+  .tabs button.active { background: var(--bg); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent2); }
+  main { max-width: 1040px; margin: 0 auto; padding: 20px 24px 70px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; overflow:hidden; }
+  details > summary { cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 12px 14px; list-style: none; }
+  summary::-webkit-details-marker { display: none; } details[open] > summary { border-bottom:1px solid var(--line); }
+  .avatar { width: 40px; height: 40px; border-radius: 9px; display:grid; place-items:center; font-weight:800; color:#fff; flex:none; font-size:17px; }
+  .titleline { display:flex; flex-direction:column; min-width:0; }
+  .titleline .top { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .artist { font-weight: 700; } .album { color: #cdd6e0; } .year { color: var(--dim); }
+  .sub { color: var(--dim); font-size: 12.5px; }
+  .spacer { margin-left:auto; }
+  .pill { font-variant-numeric: tabular-nums; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+  .pill.hi { background:#10371f; color: var(--hi); } .pill.mid { background:#3a3210; color: var(--mid); } .pill.lo { background:#3a1717; color: var(--lo); }
+  .lbar { width:3px; align-self:stretch; } .hi-l{background:var(--hi)} .mid-l{background:var(--mid)} .lo-l{background:var(--lo)}
+  .flag { display:inline-block; background:#222834; color:#9aa4b2; border-radius:6px; padding:1px 8px; font-size:11px; margin:2px; }
+  .body { padding: 4px 14px 12px; }
+  .evidence { color:#8b95a3; font-size:13px; margin:6px 0 10px; padding-left:18px; }
+  .disc { color:#9aa4b2; font-size:13px; margin:10px 0 4px; font-weight:600; }
+  table { width:100%; border-collapse:collapse; } td { padding:4px 6px; border-bottom:1px solid #20252f; }
+  .pos { color: var(--dim); width:34px; text-align:right; } .sz { color: var(--dim); text-align:right; width:84px; }
+  .metric { margin:10px 0; display:flex; align-items:center; gap:12px; } .metric .lbl { width:150px; color:var(--dim); }
+  .bar { flex:1; max-width:320px; height:10px; background:#222834; border-radius:6px; overflow:hidden; } .bar>span{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+  .arch { background:var(--panel); border:1px solid var(--line); border-left:4px solid var(--hi); border-radius:11px; padding:11px 14px; margin:8px 0; }
+  .arch.gated { border-left-color: var(--mid); } .arch .why { color:#8b95a3; font-size:13px; margin-top:3px; }
+  h3 { margin: 22px 0 8px; font-size:15px; color:#cdd6e0; } h3:first-child{margin-top:6px;}
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:8px 0; }
+  .row label.field { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--dim); }
+  .example { font-family: ui-monospace, monospace; font-size:12.5px; color:#9fb0c3; background:#0c0e13; border:1px solid var(--line); border-radius:8px; padding:8px 10px; overflow:auto; white-space:nowrap; }
+  .check { display:flex; align-items:center; gap:6px; color:#cdd6e0; font-size:14px; cursor:pointer; }
+  .tree { font-family: ui-monospace, monospace; font-size:12.5px; color:#9fb0c3; background:#0c0e13; border:1px solid var(--line); border-radius:8px; padding:10px 12px; max-height:420px; overflow:auto; }
+  .empty { color: var(--dim); padding: 56px 0; text-align: center; }
+  .spin { display:inline-block; width:14px; height:14px; border:2px solid #3a3f4b; border-top-color:var(--accent2); border-radius:50%; animation:s .7s linear infinite; vertical-align:-2px; } @keyframes s{to{transform:rotate(360deg)}}
+  .ok { color: var(--hi); } .warn { color: var(--lo); }
+  footer { color:var(--dim); font-size:12px; text-align:center; padding:24px; border-top:1px solid var(--line); }
 </style>
 </head>
 <body>
 <header>
-  <h1>🍷 Media Sommelier</h1>
+  <div class="brand"><span style="font-size:22px">🍷</span><h1>Media Sommelier</h1><span class="tag">reconstruct · enrich · organize</span></div>
   <div class="controls">
-    <input id="source" type="text" value="sample" />
-    <button id="scan">Scan</button>
-    <span class="hint">Use <code>sample</code> (bundled real data) or a folder path like <code>X:/Music</code>.</span>
+    <input id="source" type="text" value="sample" placeholder="sample  —or—  a music folder" />
+    <button id="browse" class="ghost">📁 Browse…</button>
+    <button id="scan" class="go">Scan</button>
+    <span class="hint">Type <code>sample</code> for the bundled demo, or pick a real folder.</span>
   </div>
   <div class="kpis" id="kpis"></div>
   <div class="tabs" id="tabs" hidden>
@@ -61,23 +78,31 @@
     <button data-tab="organize">Organize</button>
   </div>
 </header>
-<main>
-  <div id="view"><div class="empty">Click <b>Scan</b> to reconstruct the collection.</div></div>
-</main>
+<main><div id="view"><div class="empty"><span class="spin"></span> Loading the sample collection…</div></div></main>
+<footer>All processing is local. Originals are never modified — organize only ever copies. · <a href="https://github.com/MoebiusX/media-sommelier">github.com/MoebiusX/media-sommelier</a></footer>
+
 <script>
 const $ = (s) => document.querySelector(s);
 const view = $('#view'), kpis = $('#kpis'), tabs = $('#tabs');
-let report = null, insights = null, tab = 'albums';
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const human = (b) => { const u = ['B','KB','MB','GB','TB']; let i = 0, n = b; while (n >= 1024 && i < 4) { n /= 1024; i++; } return n.toFixed(n < 10 && i ? 1 : 0) + ' ' + u[i]; };
-const band = (c) => c >= 0.6 ? 'hi' : c >= 0.4 ? 'mid' : 'lo';
-const src = () => encodeURIComponent($('#source').value.trim() || 'sample');
+let report = null, insights = null, presets = null, tab = 'albums';
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const human = (b) => { const u=['B','KB','MB','GB','TB']; let i=0,n=b; while(n>=1024&&i<4){n/=1024;i++;} return n.toFixed(n<10&&i?1:0)+' '+u[i]; };
+const band = (c) => c>=0.6?'hi':c>=0.4?'mid':'lo';
+const src = () => $('#source').value.trim() || 'sample';
+const q = () => 'source=' + encodeURIComponent(src());
+function color(s){ let h=0; for(const ch of s) h=(h*31+ch.charCodeAt(0))%360; return `hsl(${h} 45% 38%)`; }
+
+async function browse() {
+  const b = $('#browse'); const old = b.textContent; b.disabled = true; b.textContent = 'Opening…';
+  try { const r = await (await fetch('/api/pick-folder')).json(); if (r.path) $('#source').value = r.path; }
+  finally { b.disabled = false; b.textContent = old; }
+}
 
 async function scan() {
   $('#scan').disabled = true;
-  view.innerHTML = '<div class="empty">Scanning + reconstructing…</div>';
+  view.innerHTML = '<div class="empty"><span class="spin"></span> Scanning + reconstructing…</div>';
   try {
-    report = await (await fetch('/api/reconstruct?source=' + src())).json();
+    report = await (await fetch('/api/reconstruct?' + q())).json();
     if (report.error) throw new Error(report.error);
     insights = null;
     const s = report.summary;
@@ -86,71 +111,94 @@ async function scan() {
       <span>${s.needsReview} need review</span><span>lossless ${(s.losslessRatio*100).toFixed(0)}%</span>`;
     tabs.hidden = false;
     render();
-  } catch (e) {
-    view.innerHTML = '<div class="empty">⚠ ' + esc(e.message) + '</div>';
-  } finally { $('#scan').disabled = false; }
+  } catch (e) { view.innerHTML = '<div class="empty warn">⚠ ' + esc(e.message) + '</div>'; }
+  finally { $('#scan').disabled = false; }
 }
 
 function albumCard(c) {
   const discs = c.discs.map((d) => {
-    const rows = d.tracks.map((t) => `<tr><td class="pos">${t.position}</td><td>${esc(t.title)}</td><td class="sz">${human(t.file.sizeBytes)}</td></tr>`).join('');
-    const head = c.discs.length > 1 ? `<div class="disc">Disc ${d.discNo} · ${d.tracks.length} tracks</div>` : '';
+    const rows = d.tracks.map((t)=>`<tr><td class="pos">${t.position}</td><td>${esc(t.title)}</td><td class="sz">${human(t.file.sizeBytes)}</td></tr>`).join('');
+    const head = c.discs.length>1 ? `<div class="disc">Disc ${d.discNo} · ${d.tracks.length} tracks</div>` : '';
     return head + '<table>' + rows + '</table>';
   }).join('');
-  return `<details class="card ${band(c.confidence)}"><summary>
-    <span class="artist">${esc(c.albumArtist)}</span> — <span class="album">${esc(c.albumTitle)}</span>
-    ${c.year ? `<span class="year">(${c.year})</span>` : ''}
-    <span class="meta">${c.totalTracks}t · ${c.discs.length}d · ${human(c.sizeBytes)}</span>
-    <span class="pill ${band(c.confidence)}">${c.confidence.toFixed(2)}</span></summary>
-    <div class="body"><div>${c.flags.map((f) => `<span class="flag">${esc(f)}</span>`).join(' ')}</div>
-    <ul class="evidence">${c.evidence.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>${discs}</div></details>`;
+  const ini = (c.albumArtist[0]||'?').toUpperCase();
+  return `<details class="card"><summary>
+    <div class="lbar ${band(c.confidence)}-l"></div>
+    <div class="avatar" style="background:${color(c.albumArtist)}">${esc(ini)}</div>
+    <div class="titleline"><div class="top"><span class="artist">${esc(c.albumArtist)}</span> — <span class="album">${esc(c.albumTitle)}</span> ${c.year?`<span class="year">(${c.year})</span>`:''}</div>
+      <div class="sub">${c.totalTracks} tracks · ${c.discs.length} disc${c.discs.length>1?'s':''} · ${human(c.sizeBytes)}${c.flags.length?' · '+c.flags.map(esc).join(' '):''}</div></div>
+    <span class="spacer"></span><span class="pill ${band(c.confidence)}">${c.confidence.toFixed(2)}</span></summary>
+    <div class="body"><ul class="evidence">${c.evidence.map((e)=>`<li>${esc(e)}</li>`).join('')}</ul>${discs}</div></details>`;
 }
 
-async function loadInsights() {
-  if (insights) return insights;
-  insights = await (await fetch('/api/insights?source=' + src())).json();
-  return insights;
-}
+async function loadInsights(){ if(!insights) insights = await (await fetch('/api/insights?'+q())).json(); return insights; }
+async function loadPresets(){ if(!presets) presets = await (await fetch('/api/presets')).json(); return presets; }
 
 async function render() {
-  [...tabs.children].forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  [...tabs.children].forEach((b)=>b.classList.toggle('active', b.dataset.tab===tab));
   if (tab === 'albums') {
     view.innerHTML = report.candidates.map(albumCard).join('') +
-      (report.duplicates.length ? `<h3>Duplicate candidates (verify by fingerprint)</h3><ul>${report.duplicates.map((d) => `<li><b>${esc(d.titleKey)}</b> ×${d.occurrences.length}: ${esc(d.occurrences.map((o)=>o.album).join(' · '))}</li>`).join('')}</ul>` : '');
+      (report.duplicates.length ? `<h3>Duplicate candidates (verify by fingerprint)</h3><div class="panel">${report.duplicates.map((d)=>`<div>· <b>${esc(d.titleKey)}</b> ×${d.occurrences.length} — ${esc(d.occurrences.map((o)=>o.album).join(' · '))}</div>`).join('')}</div>` : '');
   } else if (tab === 'insights') {
-    view.innerHTML = '<div class="empty">Computing insights…</div>';
-    const ins = await loadInsights();
-    const c = ins.collection, o = ins.owner;
-    const metric = (lbl, ratio, txt) => `<div class="metric"><span class="lbl">${lbl}</span><span class="bar"><span style="width:${Math.round(ratio*100)}%"></span></span> ${txt}</div>`;
+    view.innerHTML = '<div class="empty"><span class="spin"></span> Computing insights…</div>';
+    const { collection:c, owner:o } = await loadInsights();
+    const m = (lbl,r,txt)=>`<div class="metric"><span class="lbl">${lbl}</span><span class="bar"><span style="width:${Math.round(r*100)}%"></span></span><span>${txt}</span></div>`;
     view.innerHTML = `<h3>Collection</h3>
-      ${metric('Lossless', c.losslessRatio, (c.losslessRatio*100).toFixed(0)+'%')}
-      ${metric('Compilations', c.compilationRatio, (c.compilationRatio*100).toFixed(0)+'%')}
-      ${metric('Numbered', c.numberedReleaseRatio, (c.numberedReleaseRatio*100).toFixed(0)+'%')}
-      <div class="metric"><span class="lbl">Formats</span> ${Object.entries(c.formats).map(([k,v])=>esc(k)+'×'+v).join(', ')}</div>
-      <div class="metric"><span class="lbl">Top artists</span> ${c.topArtists.slice(0,6).map((a)=>esc(a.artist)+' ('+a.tracks+'t)').join(', ')}</div>
+      ${m('Lossless', c.losslessRatio, (c.losslessRatio*100).toFixed(0)+'%')}
+      ${m('Compilations', c.compilationRatio, (c.compilationRatio*100).toFixed(0)+'%')}
+      ${m('Numbered', c.numberedReleaseRatio, (c.numberedReleaseRatio*100).toFixed(0)+'%')}
+      <div class="metric"><span class="lbl">Formats</span><span>${Object.entries(c.formats).map(([k,v])=>esc(k)+' ×'+v).join(' · ')}</span></div>
+      <div class="metric"><span class="lbl">Top artists</span><span>${c.topArtists.slice(0,6).map((a)=>esc(a.artist)+' ('+a.tracks+'t)').join(' · ')}</span></div>
       <h3>Owner profile <span class="hint">heuristic · 100% local</span></h3>
       ${o.archetypes.map((a)=>`<div class="arch"><b>${esc(a.label)}</b> <span class="pill hi">${a.confidence.toFixed(2)}</span><div class="why">${esc(a.why)}</div></div>`).join('')}
-      <div class="arch gated"><b>Build history:</b> ${o.buildHistory.reliable ? 'reliable' : 'withheld'}<div class="why">${esc(o.buildHistory.reason)}</div></div>
-      <div class="arch gated"><b>Classic vs new:</b> ${o.classicVsNew.computable ? Math.round((o.classicVsNew.classicPct||0)*100)+'% pre-'+o.classicVsNew.cutoff : 'not computable'}<div class="why">${esc(o.classicVsNew.reason)}</div></div>`;
+      <div class="arch gated"><b>Build history:</b> ${o.buildHistory.reliable?'reliable':'withheld'}<div class="why">${esc(o.buildHistory.reason)}</div></div>
+      <div class="arch gated"><b>Classic vs new:</b> ${o.classicVsNew.computable?Math.round((o.classicVsNew.classicPct||0)*100)+'% pre-'+o.classicVsNew.cutoff:'not computable'}<div class="why">${esc(o.classicVsNew.reason)}</div></div>`;
   } else {
-    view.innerHTML = `<div class="controls"><input id="dest" type="text" value="D:/Organized" />
-      <button id="preview" class="ghost">Preview plan</button>
-      <span class="hint">Dry-run only — shows where files would be copied (originals never touched).</span></div>
-      <div id="planout"></div>`;
+    const p = await loadPresets();
+    const opts = Object.entries(p).map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join('');
+    view.innerHTML = `<div class="panel">
+      <div class="row">
+        <label class="field">Naming scheme<select id="scheme">${opts}</select></label>
+        <label class="field">Destination folder<input id="dest" type="text" value="D:/Organized" style="min-width:300px"/></label>
+        <button id="destbrowse" class="ghost" style="align-self:end">📁</button>
+      </div>
+      <div class="example" id="example"></div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="enrich" checked/> Enrich via MusicBrainz (canonical names/years/titles)</label>
+        <label class="check"><input type="checkbox" id="wtags" checked/> Write tags onto copies</label>
+      </div>
+      <div class="row">
+        <button id="preview" class="ghost">Preview plan</button>
+        <button id="run" class="go">Organize (copy)</button>
+        <span class="hint">Dry-run preview is safe. “Organize” copies into the destination — originals are never touched.</span>
+      </div>
+      <div id="planout"></div>
+    </div>`;
+    const exa = () => { const k=$('#scheme').value; $('#example').textContent = 'e.g.  ' + (p[k].template.replace('{albumArtist}','Pink Floyd').replace('{year} ','2011 ').replace('{album}','Echoes').replace('{disc}','Disc 1').replace('{track}','05').replace('{artist}','Pink Floyd').replace('{title}','Time').replace(/\/+/g,' / ').replace(/\s+\/\s+/g,' / ')) + '.mp3'; };
+    $('#scheme').onchange = exa; exa();
+    $('#destbrowse').onclick = async (e)=>{ e.target.disabled=true; const r=await (await fetch('/api/pick-folder')).json(); if(r.path)$('#dest').value=r.path; e.target.disabled=false; };
     $('#preview').onclick = async () => {
-      $('#planout').innerHTML = '<div class="empty">Planning…</div>';
-      const dest = encodeURIComponent($('#dest').value.trim() || 'D:/Organized');
-      const plan = await (await fetch(`/api/plan?source=${src()}&dest=${dest}`)).json();
-      $('#planout').innerHTML = `<p><b>${plan.actions.length}</b> files would be copied${plan.collisions.length ? ` · <span style="color:#e74c3c">${plan.collisions.length} collisions</span>` : ''}.</p>` +
-        '<table>' + plan.actions.slice(0, 60).map((a)=>`<tr><td>${esc(a.destRelPath)}</td></tr>`).join('') + '</table>' +
-        (plan.actions.length > 60 ? `<p class="hint">… and ${plan.actions.length-60} more</p>` : '');
+      $('#planout').innerHTML = '<div class="empty"><span class="spin"></span> Planning…' + ($('#enrich').checked?' (querying MusicBrainz)':'') + '</div>';
+      const u = `/api/plan?${q()}&dest=${encodeURIComponent($('#dest').value)}&template=${$('#scheme').value}&enrich=${$('#enrich').checked?1:0}`;
+      const r = await (await fetch(u)).json();
+      $('#planout').innerHTML = `<p><b>${r.actions}</b> files would be copied${r.collisions?` · <span class="warn">${r.collisions} collisions</span>`:''}${r.skipped?` · ${r.skipped} skipped`:''}.</p>
+        <div class="tree">${r.sample.map(esc).join('<br>')}${r.actions>r.sample.length?`<br>… and ${r.actions-r.sample.length} more`:''}</div>`;
+    };
+    $('#run').onclick = async () => {
+      if (!confirm(`Copy the organized library into:\n\n${$('#dest').value}\n\nOriginals stay untouched. Continue?`)) return;
+      $('#planout').innerHTML = '<div class="empty"><span class="spin"></span> Copying + verifying…</div>';
+      const r = await (await fetch('/api/organize', { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ source: src(), dest: $('#dest').value, template: $('#scheme').value, enrich: $('#enrich').checked, writeTags: $('#wtags').checked, execute: true }) })).json();
+      if (r.error) { $('#planout').innerHTML = `<p class="warn">⚠ ${esc(r.error)}</p>`; return; }
+      $('#planout').innerHTML = `<p class="ok">✓ ${r.copied} copied · ${r.tagged} tagged · ${r.skipped} skipped · ${r.failed?`<span class="warn">${r.failed} failed</span>`:'0 failed'} · ${human(r.bytes)} written.</p>`;
     };
   }
 }
 
 tabs.onclick = (e) => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; render(); } };
-$('#scan').onclick = scan;
-$('#source').addEventListener('keydown', (e) => { if (e.key === 'Enter') scan(); });
+$('#scan').onclick = scan; $('#browse').onclick = browse;
+$('#source').addEventListener('keydown', (e)=>{ if(e.key==='Enter') scan(); });
+scan(); // auto-load the sample so the page is never empty
 </script>
 </body>
 </html>

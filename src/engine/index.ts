@@ -16,7 +16,7 @@ export { walk, walkToArray, waitForPath } from './inventory/walk.js';
 export type { WalkOptions, WaitOptions } from './inventory/walk.js';
 export { parseName } from './reconstruct/parseName.js';
 export { reconstruct } from './reconstruct/reconstruct.js';
-export { planOrganize, sanitizeSegment } from './organize/plan.js';
+export { planOrganize, sanitizeSegment, ORGANIZE_PRESETS } from './organize/plan.js';
 export type { OrganizePlan, OrganizeAction, OrganizeOptions, AlbumEnrichment } from './organize/plan.js';
 export { executePlan } from './organize/execute.js';
 export type { ExecuteReport, ExecuteOptions, ActionResult } from './organize/execute.js';

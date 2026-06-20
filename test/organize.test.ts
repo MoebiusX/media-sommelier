@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reconstruct, planOrganize } from '../src/engine/index.js';
+import { reconstruct, planOrganize, ORGANIZE_PRESETS } from '../src/engine/index.js';
 import type { MediaFileRecord, AlbumEnrichment } from '../src/engine/index.js';
 
 const dir = 'X:\\Music\\Pink Floyd - The Wall';
@@ -65,5 +65,20 @@ describe('organize plan honors MusicBrainz enrichment overrides', () => {
   it('drives the destination path from the enrichment (canonical Year Album + title)', () => {
     expect(plan.actions[0]!.destRelPath).toContain('1979 The Wall');
     expect(plan.actions[0]!.destRelPath).toContain('01 - Another Brick in the Wall');
+  });
+});
+
+describe('organize naming-scheme presets', () => {
+  const report = reconstruct([mk('01 - In the Flesh.mp3'), mk('02 - The Thin Ice.mp3')]);
+
+  it('flat preset puts the release in one segment (no subfolders)', () => {
+    const p = planOrganize(report.candidates, { destRoot: 'D:/Out', template: ORGANIZE_PRESETS['flat']!.template });
+    expect(p.actions[0]!.destRelPath.includes('/')).toBe(false);
+    expect(p.actions[0]!.destRelPath).toContain('Pink Floyd - The Wall - 01 - In the Flesh');
+  });
+
+  it('artist-album preset omits the year folder', () => {
+    const p = planOrganize(report.candidates, { destRoot: 'D:/Out', template: ORGANIZE_PRESETS['artist-album']!.template });
+    expect(p.actions[0]!.destRelPath).toBe('Pink Floyd/The Wall/01 - In the Flesh.mp3');
   });
 });
