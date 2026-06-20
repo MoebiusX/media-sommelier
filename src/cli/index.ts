@@ -9,6 +9,7 @@
  * Flags: --json (machine output), --min-confidence <n>, --limit <n> (walk cap).
  */
 import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import {
   parseDirListing,
   reconstruct,
@@ -18,6 +19,10 @@ import {
   computeInsights,
   MusicBrainzClient,
   enrichTop,
+  fingerprintFile,
+  fpcalcPath,
+  fpcalcAvailable,
+  AcoustIdClient,
   walkToArray,
   humanBytes,
   type AlbumCandidate,
@@ -167,8 +172,43 @@ function printInsights(ins: InsightsReport): void {
   console.log('');
 }
 
+/** Minimal .env loader (no dep): sets process.env for keys not already present. */
+function loadDotEnv(path = '.env'): void {
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+    if (!m) continue;
+    const [, k, v] = m;
+    if (!process.env[k!]) process.env[k!] = v!.replace(/^["']|["']$/g, '');
+  }
+}
+
+async function runFingerprint(file: string): Promise<void> {
+  if (!fpcalcAvailable()) {
+    console.error(C.red(`fpcalc not found (looked at ${fpcalcPath()}). Run tools/fetch-fpcalc or set FPCALC_PATH.`));
+    process.exit(1);
+  }
+  console.log(C.dim(`fpcalc: ${fpcalcPath()}`));
+  const fp = await fingerprintFile(file);
+  console.log(`${C.green('✓')} fingerprinted ${C.bold(file)}`);
+  console.log(`  duration ${fp.duration}s · fingerprint ${fp.fingerprint.length} chars  ${C.dim(fp.fingerprint.slice(0, 40) + '…')}`);
+  const client = new AcoustIdClient();
+  if (!client.hasKey()) {
+    console.log(C.yellow('\n  No ACOUSTID_API_KEY (application key) set — fingerprint OK, lookup skipped.'));
+    console.log(C.dim('  Get an application key at https://acoustid.org/new-application and put it in .env'));
+    return;
+  }
+  const r = await client.lookup(fp);
+  if (!r.ok) console.log(C.red(`\n  AcoustID lookup error: ${r.error}`));
+  else if (r.best) {
+    console.log(`\n  ${C.cyan(`${r.best.artist ?? '?'} — ${r.best.recordingTitle ?? '?'}`)} ${C.dim(`[score ${r.best.score.toFixed(2)}]`)}`);
+    if (r.best.releaseGroupTitle) console.log(C.dim(`  release group: ${r.best.releaseGroupTitle} (${r.best.releaseGroupId?.slice(0, 8)})`));
+  } else console.log(C.yellow('\n  No AcoustID match for this fingerprint.'));
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  loadDotEnv();
   if (args.cmd === 'help' || !args.target) {
     console.log(`Media Sommelier CLI
   sommelier reconstruct <listing.txt> --from-listing [--json] [--html out.html]
@@ -178,8 +218,14 @@ async function main(): Promise<void> {
     (organize is dry-run unless --execute; originals are never modified)
   sommelier insights <path> [--from-listing] [--json]   collection + owner profile
   sommelier enrich <path> [--from-listing] [--limit N] [--offline] [--json]
-    (match top releases to MusicBrainz — corrects title/artist/year, adds MBIDs)`);
+    (match top releases to MusicBrainz — corrects title/artist/year, adds MBIDs)
+  sommelier fingerprint <audio-file>   (Chromaprint fingerprint + AcoustID lookup if key set)`);
     process.exit(args.target ? 0 : 1);
+  }
+
+  if (args.cmd === 'fingerprint') {
+    await runFingerprint(args.target);
+    return;
   }
 
   const inventory = await loadInventory(args);

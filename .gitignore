@@ -22,6 +22,9 @@ cache/
 .env
 .env.local
 
+# vendored native binaries (fetched via tools/fetch-fpcalc; not committed)
+vendor/
+
 # os / editor
 .DS_Store
 Thumbs.db

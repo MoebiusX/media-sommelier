@@ -29,4 +29,8 @@ export { selectBestRelease, scoreRelease, artistCreditName } from './enrich/matc
 export type { MatchResult } from './enrich/match.js';
 export { enrichCandidate, enrichTop } from './enrich/enrich.js';
 export type { EnrichedCandidate } from './enrich/enrich.js';
+export { fingerprintFile, fpcalcPath, fpcalcAvailable } from './enrich/fpcalc.js';
+export type { Fingerprint } from './enrich/fpcalc.js';
+export { AcoustIdClient, parseLookupResponse } from './enrich/acoustid.js';
+export type { AcoustIdResult, AcoustIdMatch } from './enrich/acoustid.js';
 export { humanBytes, normalize, titleKey } from './text.js';

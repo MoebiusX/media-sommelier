@@ -21,11 +21,25 @@ The dogfood **earned its keep** — it surfaced 3 real bugs I fixed: (a) year ca
 the file walk, not just the enrich count → split into `--scan-limit`; (c) the walker silently dropped
 subtrees on transient network errors → retries + visible skip warnings.
 
-**Still needs you / deferred:** AcoustID fingerprinting (needs your free non-commercial API key + the
-`fpcalc` binary; this is what recovers the mis-parsed artists like "Jefferson"/"U2-The" and the orphans);
-the Electron shell (risky to build unattended); writing enriched tags onto the organized copies.
+**Fingerprinting pipeline is now built and the local half is proven** (Milestone 6): `fpcalc` 1.5.1
+(LGPL/FFmpeg build) vendored, fingerprints real tracks; AcoustID client + parser done and unit-tested.
+**Blocked only on the right key:** the key you gave is the AcoustID *submission/user* key — tested live,
+it returns `invalid API key` for lookups. Lookups need an **application** key (the `client` param) from
+https://acoustid.org/new-application. Paste it into `.env` as `ACOUSTID_API_KEY=` and lookups work
+immediately (I'll then wire fingerprint-fallback into enrich for the files MB-by-tags can't match).
+
+**Deferred:** Electron shell (risky unattended); writing enriched tags onto the organized copies.
 
 ---
+
+## ✅ Milestone 6 — audio fingerprinting pipeline (fpcalc + AcoustID)
+
+`src/engine/enrich/fpcalc.ts` (Chromaprint subprocess adapter, vendored LGPL binary, resolves
+FPCALC_PATH→vendor→PATH) + `acoustid.ts` (lookup client: 3/s throttle, on-disk cache, User-Agent;
+pure `parseLookupResponse`, 3 unit tests) + CLI `fingerprint <file>` + a `.env` loader. Proven live:
+fingerprinted a real 436s track (3723-char Chromaprint). Lookup confirmed blocked on the application
+key (the submission key returns `invalid API key`). `tools/fetch-fpcalc.mjs` makes the binary
+reproducible (vendor/ is gitignored). 27 tests green.
 
 ## ✅ Milestone 5 — MusicBrainz enrichment (V1 start, non-commercial)
 
