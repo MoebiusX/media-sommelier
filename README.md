@@ -68,26 +68,36 @@ test/        fixtures incl. the real-world Car Playlists sample
 packages/    (engine core, app, cli — landing with the implementation plan)
 ```
 
-## Status — V0 engine working
+## Status — engine working end-to-end (V0 + V1 enrichment)
 
-The offline reconstruction engine is built, tested (20 tests), and proven on the real sample. See
-[`STATUS.md`](STATUS.md) for the running log and [`GOAL.md`](GOAL.md) for the V0 checklist.
+The engine is built, tested (**60 tests**), and proven on real audio — it has organized a real album
+end-to-end (reconstruct → enrich → copy → tag) with originals untouched. Docs:
+[`ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`CLI.md`](docs/CLI.md) ·
+[`IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) · running log in [`STATUS.md`](STATUS.md).
 
 ```bash
 npm install
-npm test                                                   # 20 tests
+npm test                                                   # 60 tests
 LISTING=test/fixtures/real-world/car-playlists-selection.dir.txt
-npx tsx src/cli/index.ts reconstruct $LISTING --from-listing            # rebuild albums
-npx tsx src/cli/index.ts reconstruct $LISTING --from-listing --html docs/sample-report.html
-npx tsx src/cli/index.ts insights   $LISTING --from-listing            # collection + owner profile
-npx tsx src/cli/index.ts organize   $LISTING --from-listing --dest D:/Organized   # dry-run (add --execute to copy)
+
+# offline, no setup — runs on the bundled real-data sample:
+npx tsx src/cli/index.ts reconstruct $LISTING --from-listing             # rebuild albums
+npx tsx src/cli/index.ts insights    $LISTING --from-listing             # collection + owner profile
+npx tsx src/cli/index.ts enrich      $LISTING --limit 8                  # MusicBrainz corrections (network)
+npx tsx src/cli/index.ts plan        $LISTING --from-listing --enrich --dest D:/Organized
+
+# on a real mounted library: omit --from-listing and point at a folder
+npx tsx src/cli/index.ts organize "Y:/Music" --dest "D:/Organized" --execute --enrich --write-tags
 ```
 
 `--from-listing` parses a Windows `dir /s` dump (how we test on real data without the drive mounted);
-omit it to scan a real folder via the filesystem walker. The full multi-phase plan is in
-[`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+omit it to scan a real folder via the filesystem walker. See [`docs/CLI.md`](docs/CLI.md) for all flags
+and the `.env` setup (AcoustID application key, `fpcalc`).
 
-**V0 does (offline, heuristic):** scan → reconstruct albums (multi-disc merge, completeness, orphans,
-duplicates) → dry-run/execute copy-to-new-tree (hash-verified, source read-only) → collection + owner
-insights. **V1 adds** (needs the commercial-licensing decision first): audio fingerprinting +
-MusicBrainz/Discogs enrichment, provenance, real tag writing.
+**What works today:** scan (fs walk or listing) → reconstruct albums (multi-disc merge, completeness,
+orphans, duplicates) → **enrich** against MusicBrainz with an **AcoustID fingerprint fallback**
+(corrects titles/artists/years, adds MBIDs + per-track titles) → **organize** into a clean
+`Artist/YYYY Album/Disc N/NN - Title` tree, copy hash-verified and tags written **onto the copies only**
+(source is never mutated) → collection + owner insights. Non-commercial/personal use.
+
+**Deferred:** Electron desktop shell; persistent SQLite catalog; corpus-calibrated match thresholds.
