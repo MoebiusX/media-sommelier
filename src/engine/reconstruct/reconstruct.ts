@@ -54,6 +54,39 @@ function parentOf(dir: string): string {
   return idx > 0 ? dir.slice(0, idx) : dir;
 }
 
+const SEP_RE = / - | – | — /;
+function segCount(p: string): number {
+  return p.split(/[\\/]/).filter(Boolean).length;
+}
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+/** Count of common leading path segments across dirs = depth of the scan root. */
+function commonRootSegCount(dirs: string[]): number {
+  if (dirs.length === 0) return 0;
+  const split = dirs.map((d) => d.split(/[\\/]/).filter(Boolean));
+  const min = Math.min(...split.map((s) => s.length));
+  let common = 0;
+  for (let i = 0; i < min; i++) {
+    const w = split[0]![i];
+    if (split.every((s) => s[i] === w)) common++;
+    else break;
+  }
+  return common;
+}
+/** Strip a leading year ("1975 ", "(2007) ") or disc token from a folder name. */
+function stripLeadingYearDisc(s: string): string {
+  return s
+    .replace(/^[[(]?\s*(?:19[0-9]{2}|20[0-9]{2})\s*[\])]?\s*[-–—.\s]*/, '')
+    .replace(/^(?:cd|disc|disco|vol(?:ume)?)\s*\.?\s*\d+\s*[-–—.\s]*/i, '')
+    .trim();
+}
+/** The "Artist - Album" prefix of a folder name, supporting -, –, — separators. */
+function artistBeforeSep(s: string): string | undefined {
+  const m = s.match(SEP_RE);
+  return m && m.index! > 0 ? s.slice(0, m.index!).trim() : undefined;
+}
+
 function bareDiscNo(leaf: string): number | undefined {
   const m = leaf.match(/^(?:cd|disc|disco)\s*\.?\s*(\d+)$/i) || leaf.match(/^volume\s*\.?\s*(\d+)$/i);
   return m ? Number(m[1]) : undefined;
@@ -90,7 +123,7 @@ function discFromResidual(residual: string): number | undefined {
   return dm ? Number(dm[1]) : undefined;
 }
 
-function guessArtist(fa: FolderAlbum): string {
+function guessArtist(fa: FolderAlbum, structuralArtist?: string): string {
   // 1) consistent artist parsed from filenames
   const counts = new Map<string, number>();
   for (const f of fa.files) {
@@ -101,11 +134,13 @@ function guessArtist(fa: FolderAlbum): string {
   let bestN = 0;
   for (const [a, n] of counts) if (n > bestN) ((best = a), (bestN = n));
   if (best && bestN >= Math.ceil(fa.files.length / 2)) return best;
-  // 2) "Artist - Album" folder convention
-  const src = fa.bareDisc ? basename(fa.parentPath) : fa.albumFolderName;
-  const dash = src.indexOf(' - ');
-  if (dash > 0) return src.slice(0, dash).trim();
-  // 3) leading token of the folder name (e.g. "QUEEN Greatest Hits ...")
+  // 2) "Artist - Album" folder convention (after stripping a leading year/disc token)
+  const src = stripLeadingYearDisc(fa.bareDisc ? basename(fa.parentPath) : fa.albumFolderName);
+  const sep = artistBeforeSep(src);
+  if (sep) return sep;
+  // 3) the folder one level above the album (Artist/Album layout)
+  if (structuralArtist) return structuralArtist;
+  // 4) leading token of the folder name (e.g. "QUEEN Greatest Hits ...")
   return src.split(/\s+/)[0] ?? 'Unknown Artist';
 }
 
@@ -116,15 +151,16 @@ function titleCaseIfLower(s: string): string {
 }
 
 function albumTitleFrom(name: string, artist: string): string {
-  let t = name;
-  const dashPfx = `${artist} - `;
-  if (t.toLowerCase().startsWith(dashPfx.toLowerCase())) t = t.slice(dashPfx.length);
+  let t = stripLeadingYearDisc(name).replace(/_/g, ' ');
+  const sepPfx = new RegExp(`^${escapeRe(artist)}\\s*[-–—]\\s*`, 'i');
+  if (sepPfx.test(t)) t = t.replace(sepPfx, '');
   else if (t.toLowerCase().startsWith(`${artist.toLowerCase()} `)) t = t.slice(artist.length + 1); // "QUEEN Greatest Hits…"
   t = t.replace(/\([^)]*\b\d*\s*cd\b[^)]*\)/gi, ''); // "(Remasters 2CD)"
   t = stripDiscTokens(t);
-  t = t.replace(/\b(19[0-9]{2}|20[0-9]{2})\b/g, '').trim();
-  t = t.replace(/^[-\s]+|[-\s]+$/g, '');
-  return t || name;
+  t = t.replace(/\b(19[0-9]{2}|20[0-9]{2})\b/g, '');
+  t = t.replace(/\(\s*\)|\[\s*\]/g, ''); // empty () or []
+  t = t.replace(/\s{2,}/g, ' ').replace(/^[-–—\s]+|[-–—\s]+$/g, '');
+  return t || stripLeadingYearDisc(name) || name;
 }
 
 export function reconstruct(records: MediaFileRecord[]): ReconstructionReport {
@@ -198,10 +234,11 @@ export function reconstruct(records: MediaFileRecord[]): ReconstructionReport {
     byKey.get(fa.releaseKey)!.push(fa);
   }
 
+  const rootSegCount = commonRootSegCount(folderAlbums.map((fa) => fa.dir));
   const candidates: AlbumCandidate[] = [];
   const usedIds = new Set<string>();
   for (const [, group] of byKey) {
-    candidates.push(buildCandidate(group, usedIds));
+    candidates.push(buildCandidate(group, usedIds, rootSegCount));
   }
   candidates.sort((a, b) => b.totalTracks - a.totalTracks);
 
@@ -212,9 +249,18 @@ export function reconstruct(records: MediaFileRecord[]): ReconstructionReport {
   };
 }
 
-function buildCandidate(group: FolderAlbum[], usedIds: Set<string>): AlbumCandidate {
+function buildCandidate(group: FolderAlbum[], usedIds: Set<string>, rootSegCount: number): AlbumCandidate {
   const repr = group.find((g) => !g.bareDisc) ?? group[0]!;
-  const artist = titleCaseIfLower(guessArtist(repr));
+  // the "album directory" is the container (parent) for merged/bare-disc sets, else the leaf folder;
+  // the artist is the folder one level above it — but only if that level is below the scan root.
+  const merged = group.length > 1;
+  const albumDir = merged || repr.bareDisc ? repr.parentPath : repr.dir;
+  const artistDir = parentOf(albumDir);
+  const structuralArtist =
+    segCount(artistDir) > rootSegCount
+      ? artistBeforeSep(stripLeadingYearDisc(basename(artistDir))) ?? stripLeadingYearDisc(basename(artistDir))
+      : undefined;
+  const artist = titleCaseIfLower(guessArtist(repr, structuralArtist));
   const albumTitle = albumTitleFrom(repr.albumFolderName, artist);
   const allFiles = group.flatMap((g) => g.files);
 
