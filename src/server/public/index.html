@@ -75,14 +75,36 @@
   .grid .num { text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; }
   .grid .play { width:24px; text-align:center; color:#4a5160; } .grid tbody tr:hover .play { color:var(--accent2); }
   /* mini player */
-  #player { position:fixed; left:0; right:0; bottom:0; background:#12141b; border-top:1px solid var(--line); display:none; align-items:center; gap:16px; padding:9px 18px; z-index:30; }
+  #player { position:fixed; left:0; right:0; bottom:0; background:linear-gradient(180deg,#14161f,#101219); border-top:1px solid var(--line); display:none; align-items:center; gap:16px; padding:10px 18px; z-index:30; box-shadow:0 -8px 24px rgba(0,0,0,.35); }
   #player.on { display:flex; }
+  #player.idle { opacity:.72; }
   #player .np { display:flex; align-items:center; gap:10px; width:24%; min-width:170px; }
   #player .np .t { min-width:0; } #player .l1 { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } #player .l2 { color:var(--dim); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #player .ctrls { display:flex; align-items:center; gap:6px; } #player .ctrls button { background:transparent; color:var(--ink); font-size:15px; padding:6px; }
-  #player .pp { background:linear-gradient(135deg,var(--accent),var(--accent2))!important; border-radius:50%!important; width:38px; height:38px; padding:0!important; font-size:14px!important; }
+  #player .ctrls { display:flex; align-items:center; gap:4px; } #player .ctrls button { background:transparent; color:var(--ink); font-size:15px; padding:6px; border-radius:8px; }
+  #player .ctrls button:hover:not(:disabled){ background:var(--panel2); filter:none; }
+  #player .ctrls button.tog { font-size:13px; color:var(--dim); position:relative; }
+  #player .ctrls button.tog.on { color:var(--accent2); }
+  #player .ctrls button.tog.on::after { content:''; position:absolute; left:50%; bottom:1px; transform:translateX(-50%); width:4px; height:4px; border-radius:50%; background:var(--accent2); }
+  #player .ctrls button.tog .badge { position:absolute; top:0; right:0; font-size:8px; font-weight:800; color:var(--accent2); }
+  #player .pp { background:linear-gradient(135deg,var(--accent),var(--accent2))!important; border-radius:50%!important; width:38px; height:38px; padding:0!important; font-size:14px!important; color:#fff!important; }
+  #player .pp:hover { filter:brightness(1.12)!important; }
   #player .seekwrap { flex:1; display:flex; align-items:center; gap:9px; color:var(--dim); font-size:12px; font-variant-numeric:tabular-nums; }
   #player input[type=range] { accent-color:var(--accent2); cursor:pointer; } #player #seek { flex:1; } #player .vol { width:84px; }
+  #player .qbtn { background:transparent; color:var(--dim); font-size:14px; padding:6px 9px; border-radius:8px; }
+  #player .qbtn:hover { background:var(--panel2); filter:none; } #player .qbtn.on { color:var(--accent2); }
+  /* up-next popover */
+  #queuepop { position:fixed; right:16px; bottom:70px; width:340px; max-height:50vh; background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:0 14px 40px rgba(0,0,0,.5); z-index:31; display:none; flex-direction:column; overflow:hidden; }
+  #queuepop.on { display:flex; }
+  #queuepop .qhead { display:flex; align-items:center; gap:8px; padding:11px 14px; border-bottom:1px solid var(--line); font-weight:600; font-size:13px; }
+  #queuepop .qhead .spacer { margin-left:auto; } #queuepop .qhead .n { color:var(--dim); font-weight:500; }
+  #queuepop .qlist { overflow:auto; padding:4px 0; }
+  #queuepop .qitem { display:flex; align-items:center; gap:9px; padding:7px 14px; cursor:pointer; font-size:13px; }
+  #queuepop .qitem:hover { background:#1a1e27; }
+  #queuepop .qitem.cur { color:var(--accent2); } #queuepop .qitem.cur .qpos { color:var(--accent2); }
+  #queuepop .qitem .qpos { width:22px; color:#4a5160; font-size:11px; font-variant-numeric:tabular-nums; text-align:right; flex:none; }
+  #queuepop .qitem .qt { min-width:0; flex:1; } #queuepop .qitem .qt .qn { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #queuepop .qitem .qt .qa { color:var(--dim); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #queuepop .qempty { color:var(--dim); padding:24px; text-align:center; font-size:13px; }
   /* photos */
   .pgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:8px; }
   .pgrid a { position:relative; display:block; aspect-ratio:1; border-radius:8px; overflow:hidden; background:#1a1e27; }
@@ -137,11 +159,22 @@
 <main><div id="view"><div class="empty"><span class="spin"></span> Loading the sample collection…</div></div></main>
 <footer>All processing is local. Originals are never modified — organize only ever copies. · <a href="https://github.com/MoebiusX/media-sommelier">github.com/MoebiusX/media-sommelier</a></footer>
 
-<div id="player">
-  <div class="np"><div class="avatar" id="npav" style="width:38px;height:38px;font-size:15px">♪</div><div class="t"><div class="l1" id="nptitle">—</div><div class="l2" id="npartist"></div></div></div>
-  <div class="ctrls"><button id="prev" title="Previous">⏮</button><button class="pp" id="pp" title="Play/pause">▶</button><button id="next" title="Next">⏭</button></div>
+<div id="player" class="idle">
+  <div class="np"><div class="avatar" id="npav" style="width:38px;height:38px;font-size:15px">♪</div><div class="t"><div class="l1" id="nptitle">Nothing playing</div><div class="l2" id="npartist">Pick a track from the Library</div></div></div>
+  <div class="ctrls">
+    <button id="shuffle" class="tog" title="Shuffle">🔀</button>
+    <button id="prev" title="Previous (←)">⏮</button>
+    <button class="pp" id="pp" title="Play/pause (Space)">▶</button>
+    <button id="next" title="Next (→)">⏭</button>
+    <button id="repeat" class="tog" title="Repeat: off">🔁</button>
+  </div>
   <div class="seekwrap"><span id="cur">0:00</span><input type="range" id="seek" min="0" max="1000" value="0" /><span id="dur">0:00</span></div>
   <span>🔊</span><input type="range" class="vol" id="vol" min="0" max="1" step="0.01" value="1" />
+  <button id="qtoggle" class="qbtn" title="Up next">☰</button>
+</div>
+<div id="queuepop">
+  <div class="qhead">Up Next<span class="n" id="qcount"></span><span class="spacer"></span></div>
+  <div class="qlist" id="qlist"></div>
 </div>
 <audio id="audio"></audio>
 
@@ -179,6 +212,7 @@ async function scan() {
       <span>${human(s.audioBytes)}</span><span>${s.multiDisc} multi-disc</span><span>${s.orphans} orphan</span>
       <span>${s.needsReview} need review</span><span>lossless ${(s.losslessRatio*100).toFixed(0)}%</span>`;
     tabs.hidden = false;
+    if (!audio.src) showPlayer(); // present-but-idle once a library is loaded
     render();
   } catch (e) { view.innerHTML = '<div class="empty warn">⚠ ' + esc(e.message) + '</div>'; }
   finally { $('#scan').disabled = false; }
@@ -316,7 +350,8 @@ function renderRows() {
   $('#libbody').innerHTML = queue.map((t,i)=>`<tr data-i="${i}"><td class="play">▶</td><td>${esc(t.artist)}</td><td>${esc(t.title)}</td><td>${esc(t.album)}</td><td>${esc(t.genre)}</td><td class="num">${fmtTime(t.durationMs)}</td><td class="num">${t.bitrateKbps?t.bitrateKbps+'k':''}</td><td class="num">${human(t.sizeBytes)}</td></tr>`).join('');
   view.querySelectorAll('#libbody tr').forEach((tr)=>tr.onclick=()=>playIndex(Number(tr.dataset.i)));
   view.querySelectorAll('thead th[data-k]').forEach((h)=>{ h.classList.remove('up','dn'); if(h.dataset.k===libSort.key)h.classList.add(libSort.asc?'up':'dn'); });
-  markPlaying();
+  shuffleOrder = []; // queue changed — rebuild lazily on next shuffle nav
+  markPlaying(); renderQueue();
 }
 
 // ---- Photos ----
@@ -390,14 +425,97 @@ vid.addEventListener('play', () => { if (!audio.paused) audio.pause(); });
 document.addEventListener('keydown', (e) => { if (e.key==='Escape' && voverlay.classList.contains('on')) closeVideo(); });
 
 // ---- Mini player ----
+let shuffle = false, repeat = 'off', shuffleOrder = [];
+// restore persisted prefs
+(function restorePrefs(){
+  try {
+    const v = localStorage.getItem('ms.vol'); if(v!==null){ audio.volume=Math.min(1,Math.max(0,Number(v)||0)); $('#vol').value=String(audio.volume); }
+    shuffle = localStorage.getItem('ms.shuffle')==='1';
+    const rp = localStorage.getItem('ms.repeat'); if(rp==='all'||rp==='one'||rp==='off') repeat = rp;
+  } catch(e){}
+  reflectToggles();
+})();
+function reflectToggles(){
+  $('#shuffle').classList.toggle('on', shuffle);
+  const rb = $('#repeat'); rb.classList.toggle('on', repeat!=='off');
+  rb.innerHTML = repeat==='one' ? '🔁<span class="badge">1</span>' : '🔁';
+  rb.title = 'Repeat: '+repeat;
+}
+function savePrefs(){ try{ localStorage.setItem('ms.vol',String(audio.volume)); localStorage.setItem('ms.shuffle',shuffle?'1':'0'); localStorage.setItem('ms.repeat',repeat); }catch(e){} }
+// Once a real library exists, keep the player visible (idle when nothing is loaded).
+function showPlayer(){ $('#player').classList.add('on'); }
 function markPlaying(){ document.querySelectorAll('#libbody tr').forEach((tr)=>tr.classList.toggle('playing', Number(tr.dataset.i)===qi)); }
-function playIndex(i){ if(i<0||i>=queue.length) return; qi=i; const t=queue[i]; audio.src='/api/audio?path='+encodeURIComponent(t.path); audio.play().catch(()=>{}); $('#player').classList.add('on'); $('#nptitle').textContent=t.title||t.path; $('#npartist').textContent=t.artist||''; const ini=(t.artist||t.title||'♪')[0].toUpperCase(); $('#npav').style.background=color(t.artist||t.title||'x'); $('#npav').innerHTML=esc(ini)+`<img src="/api/cover?path=${encodeURIComponent(t.path)}" onerror="this.remove()">`; markPlaying(); }
-$('#pp').onclick=()=>{ if(audio.paused){ if(!audio.src&&queue.length)playIndex(0); else audio.play(); } else audio.pause(); };
-$('#prev').onclick=()=>playIndex(qi-1); $('#next').onclick=()=>playIndex(qi+1);
-audio.onplay=()=>{ $('#pp').textContent='⏸'; if(!vid.paused) vid.pause(); }; audio.onpause=()=>$('#pp').textContent='▶'; audio.onended=()=>playIndex(qi+1);
+function buildShuffleOrder(){ shuffleOrder = queue.map((_,i)=>i); for(let i=shuffleOrder.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [shuffleOrder[i],shuffleOrder[j]]=[shuffleOrder[j],shuffleOrder[i]]; } }
+function nextIndex(){
+  if(!queue.length) return -1;
+  if(repeat==='one') return qi;
+  if(shuffle){
+    if(shuffleOrder.length!==queue.length) buildShuffleOrder();
+    const pos = shuffleOrder.indexOf(qi);
+    if(pos<shuffleOrder.length-1) return shuffleOrder[pos+1];
+    return repeat==='all' ? shuffleOrder[0] : -1;
+  }
+  if(qi+1<queue.length) return qi+1;
+  return repeat==='all' ? 0 : -1;
+}
+function prevIndex(){
+  if(!queue.length) return -1;
+  if(shuffle){
+    if(shuffleOrder.length!==queue.length) buildShuffleOrder();
+    const pos = shuffleOrder.indexOf(qi);
+    return pos>0 ? shuffleOrder[pos-1] : shuffleOrder[shuffleOrder.length-1];
+  }
+  if(qi-1>=0) return qi-1;
+  return repeat==='all' ? queue.length-1 : 0;
+}
+function playIndex(i){
+  if(i<0||i>=queue.length) return;
+  qi=i; const t=queue[i];
+  audio.src='/api/audio?path='+encodeURIComponent(t.path); audio.play().catch(()=>{});
+  showPlayer(); $('#player').classList.remove('idle');
+  $('#nptitle').textContent=t.title||t.path; $('#npartist').textContent=t.artist||'';
+  const ini=(t.artist||t.title||'♪')[0].toUpperCase();
+  $('#npav').style.background=color(t.artist||t.title||'x');
+  $('#npav').innerHTML=esc(ini)+`<img src="/api/cover?path=${encodeURIComponent(t.path)}" onerror="this.remove()">`;
+  markPlaying(); renderQueue();
+}
+$('#pp').onclick=()=>{ if(audio.paused){ if(!audio.src&&queue.length)playIndex(shuffle?(buildShuffleOrder(),shuffleOrder[0]):0); else audio.play(); } else audio.pause(); };
+$('#prev').onclick=()=>{ if(audio.currentTime>3 && !shuffle){ audio.currentTime=0; return; } playIndex(prevIndex()); };
+$('#next').onclick=()=>playIndex(nextIndex());
+$('#shuffle').onclick=()=>{ shuffle=!shuffle; if(shuffle) buildShuffleOrder(); reflectToggles(); savePrefs(); renderQueue(); };
+$('#repeat').onclick=()=>{ repeat = repeat==='off'?'all':repeat==='all'?'one':'off'; reflectToggles(); savePrefs(); };
+audio.onplay=()=>{ $('#pp').textContent='⏸'; if(!vid.paused) vid.pause(); }; audio.onpause=()=>$('#pp').textContent='▶';
+audio.onended=()=>{ if(repeat==='one'){ audio.currentTime=0; audio.play().catch(()=>{}); return; } const n=nextIndex(); if(n>=0) playIndex(n); };
 audio.ontimeupdate=()=>{ if(audio.duration){ $('#seek').value=String(Math.round(audio.currentTime/audio.duration*1000)); $('#cur').textContent=fmtTime(audio.currentTime*1000); $('#dur').textContent=fmtTime(audio.duration*1000); } };
 $('#seek').oninput=()=>{ if(audio.duration) audio.currentTime=Number($('#seek').value)/1000*audio.duration; };
-$('#vol').oninput=()=>{ audio.volume=Number($('#vol').value); };
+$('#vol').oninput=()=>{ audio.volume=Number($('#vol').value); savePrefs(); };
+
+// ---- Up Next popover ----
+function renderQueue(){
+  const list=$('#qlist'), cnt=$('#qcount');
+  if(!queue.length){ list.innerHTML='<div class="qempty">Queue is empty.<br>Open the Library and play a track.</div>'; cnt.textContent=''; return; }
+  cnt.textContent=' · '+queue.length;
+  list.innerHTML=queue.map((t,i)=>`<div class="qitem${i===qi?' cur':''}" data-i="${i}"><span class="qpos">${i===qi?'▶':i+1}</span><div class="qt"><div class="qn">${esc(t.title||t.path)}</div><div class="qa">${esc(t.artist||'')}</div></div></div>`).join('');
+  list.querySelectorAll('.qitem').forEach((el)=>el.onclick=()=>playIndex(Number(el.dataset.i)));
+  const cur=list.querySelector('.qitem.cur'); if(cur) cur.scrollIntoView({block:'nearest'});
+}
+$('#qtoggle').onclick=()=>{ const p=$('#queuepop'); const willOpen=!p.classList.contains('on'); p.classList.toggle('on',willOpen); $('#qtoggle').classList.toggle('on',willOpen); if(willOpen) renderQueue(); };
+document.addEventListener('click',(e)=>{ const p=$('#queuepop'); if(!p.classList.contains('on'))return; if(!p.contains(e.target)&&e.target!==$('#qtoggle')){ p.classList.remove('on'); $('#qtoggle').classList.remove('on'); } });
+
+// ---- Keyboard shortcuts ----
+function isTyping(el){ if(!el) return false; const t=(el.tagName||'').toUpperCase(); return t==='INPUT'||t==='TEXTAREA'||t==='SELECT'||el.isContentEditable; }
+document.addEventListener('keydown',(e)=>{
+  if(voverlay.classList.contains('on')) return; // video overlay owns the keyboard
+  if(isTyping(e.target)) return;
+  if(e.metaKey||e.ctrlKey||e.altKey) return;
+  switch(e.key){
+    case ' ': case 'Spacebar': e.preventDefault(); $('#pp').onclick(); break;
+    case 'ArrowRight': e.preventDefault(); $('#next').onclick(); break;
+    case 'ArrowLeft': e.preventDefault(); $('#prev').onclick(); break;
+    case 'ArrowUp': e.preventDefault(); audio.volume=Math.min(1,audio.volume+0.05); $('#vol').value=String(audio.volume); savePrefs(); break;
+    case 'ArrowDown': e.preventDefault(); audio.volume=Math.max(0,audio.volume-0.05); $('#vol').value=String(audio.volume); savePrefs(); break;
+  }
+});
 
 tabs.onclick = (e) => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; render(); } };
 $('#scan').onclick = scan; $('#browse').onclick = browse;
