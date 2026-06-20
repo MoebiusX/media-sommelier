@@ -7,12 +7,14 @@
  *   npm run ui    →    http://localhost:4178
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
+import { readFile, stat, mkdir } from 'node:fs/promises';
+import { createReadStream, existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import {
   parseDirListing,
   reconstruct,
@@ -24,6 +26,7 @@ import {
   scanLibraryCached,
   computeLibraryStats,
   scanPhotos,
+  scanVideos,
   MusicBrainzClient,
   AcoustIdClient,
   enrichCandidate,
@@ -32,6 +35,7 @@ import {
   type ReconstructionReport,
   type AlbumEnrichment,
   type Track,
+  type Video,
 } from '../engine/index.js';
 
 const IMAGE_MIME: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', heic: 'image/heic', tiff: 'image/tiff' };
@@ -41,10 +45,15 @@ const AUDIO_MIME: Record<string, string> = {
   ogg: 'audio/ogg', opus: 'audio/ogg', wav: 'audio/wav', wma: 'audio/x-ms-wma', aiff: 'audio/aiff',
 };
 
-/** Stream an audio file with HTTP Range support so the player can seek. */
-async function serveAudio(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+const VIDEO_MIME: Record<string, string> = {
+  mp4: 'video/mp4', mkv: 'video/x-matroska', webm: 'video/webm', mov: 'video/quicktime',
+  avi: 'video/x-msvideo', m4v: 'video/x-m4v', mpg: 'video/mpeg', mpeg: 'video/mpeg',
+};
+
+/** Stream a file with HTTP Range support so players can seek. Used for both audio and video. */
+async function serveFile(req: IncomingMessage, res: ServerResponse, path: string, mimeMap: Record<string, string>): Promise<void> {
   const ext = (path.split('.').pop() ?? '').toLowerCase();
-  const type = AUDIO_MIME[ext];
+  const type = mimeMap[ext];
   if (!type) { res.writeHead(415); res.end(); return; }
   let size: number;
   try { size = (await stat(path)).size; } catch { res.writeHead(404); res.end(); return; }
@@ -61,6 +70,11 @@ async function serveAudio(req: IncomingMessage, res: ServerResponse, path: strin
   }
 }
 
+/** Stream an audio file with HTTP Range support so the player can seek. */
+function serveAudio(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+  return serveFile(req, res, path, AUDIO_MIME);
+}
+
 /** Lean track record for the wire (drop fields the grid doesn't need). */
 function leanTrack(t: Track) {
   return {
@@ -70,8 +84,62 @@ function leanTrack(t: Track) {
   };
 }
 
+/** Lean video record for the wire (drop fields the grid doesn't need). */
+function leanVideo(v: Video) {
+  return {
+    path: v.path, title: v.title, durationMs: v.durationMs ?? null,
+    width: v.width ?? null, height: v.height ?? null, videoCodec: v.videoCodec ?? '',
+    bitrateKbps: v.bitrateKbps ?? null, sizeBytes: v.sizeBytes,
+  };
+}
+
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
+const POSTER_DIR = 'data/posters';
+
+/** Resolve the ffmpeg binary: FFMPEG_PATH env → bundled ffmpeg-static → bare name on PATH. */
+function ffmpegPath(): string {
+  const exe = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  if (process.env.FFMPEG_PATH && existsSync(process.env.FFMPEG_PATH)) return process.env.FFMPEG_PATH;
+  try {
+    const require = createRequire(import.meta.url);
+    const p = require('ffmpeg-static') as string | null;
+    if (p && existsSync(p)) return p;
+  } catch {
+    // fall through to PATH lookup
+  }
+  return exe;
+}
+
+/**
+ * Best-effort poster: grab one frame ~10% into the video to a cached jpeg under data/posters/.
+ * Returns the cache path, or null if ffmpeg is unavailable or extraction fails. Never touches the source.
+ */
+async function posterFor(srcPath: string): Promise<string | null> {
+  const hash = createHash('sha1').update(srcPath).digest('hex');
+  const out = join(POSTER_DIR, `${hash}.jpg`);
+  if (existsSync(out)) return out;
+  let durationSec = 0;
+  try {
+    const { readVideo } = await import('../engine/index.js');
+    const meta = await readVideo(srcPath);
+    if (meta.durationMs) durationSec = meta.durationMs / 1000;
+  } catch {
+    // ignore; fall back to a fixed seek
+  }
+  const seek = durationSec > 0 ? Math.max(1, durationSec * 0.1) : 10;
+  try {
+    await mkdir(POSTER_DIR, { recursive: true });
+    await execFileAsync(
+      ffmpegPath(),
+      ['-y', '-ss', String(seek), '-i', srcPath, '-frames:v', '1', '-q:v', '4', '-vf', 'scale=480:-1', out],
+      { timeout: 60_000 },
+    );
+    return existsSync(out) ? out : null;
+  } catch {
+    return null;
+  }
+}
 const SAMPLE = 'test/fixtures/sample/sample-collection.dir.txt';
 const PORT = Number(process.env.PORT ?? 4178);
 
@@ -159,6 +227,26 @@ const server = createServer(async (req, res) => {
       const p = url.searchParams.get('path');
       if (!p) { res.writeHead(400); res.end(); return; }
       return serveAudio(req, res, p);
+    }
+    if (url.pathname === '/api/video') {
+      const p = url.searchParams.get('path');
+      if (!p) { res.writeHead(400); res.end(); return; }
+      return serveFile(req, res, p, VIDEO_MIME);
+    }
+    if (url.pathname === '/api/videos') {
+      const folder = url.searchParams.get('source');
+      if (!folder || folder === 'sample') return json(res, { needsFolder: true });
+      const r = await scanVideos(folder);
+      return json(res, { root: folder, stats: r.stats, videos: r.videos.map(leanVideo) });
+    }
+    if (url.pathname === '/api/poster') {
+      const p = url.searchParams.get('path');
+      if (!p) { res.writeHead(400); res.end(); return; }
+      const poster = await posterFor(p);
+      if (!poster) { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'max-age=86400' });
+      createReadStream(poster).pipe(res);
+      return;
     }
     if (url.pathname === '/api/cover') {
       const p = url.searchParams.get('path');
