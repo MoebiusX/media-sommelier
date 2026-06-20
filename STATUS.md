@@ -4,24 +4,45 @@ _Running log so we can review on your return. Newest first._
 
 ## ▶ Review summary (read me first)
 
-**A complete, tested V0 of the engine is built and committed** — the whole pipeline works end-to-end on
-your real `Selection` data: **scan → reconstruct albums → organize (copy, verified) → insights + owner
-profile**. 21 tests green, `tsc` clean, 6 commits on `main`. Open `docs/sample-report.html` in a browser
-to see the reconstruction; run the CLI commands in `README.md` to drive it.
+**V0 is complete AND V1 (MusicBrainz enrichment) has started — all run live on your REAL drive.** Both
+your answers landed: non-commercial/personal (MB/AcoustID/Discogs all clean) and `Y:\` is mounted, so I
+dogfooded on the actual collection, not the pasted sample. 24 tests green, `tsc` clean, on `main`.
 
-I **stopped here on purpose** rather than spin into the next phase unattended, because the next steps
-either need your decision or can't be verified without your real files:
+What works end-to-end now: **scan (real `Y:\` walk) → reconstruct albums → organize (verified copy) →
+collection + owner insights → MusicBrainz enrichment**.
 
-1. **Commercial vs non-commercial** — gates the whole enrichment stack (MusicBrainz/AcoustID/Discogs
-   licensing). V1 (fingerprinting + online matching, which fixes typo'd titles and recovers the
-   orphaned Eagles/Marc-Antoine albums) is blocked on this. *Recommended: non-commercial/personal.*
-2. **Run it on the real drive** — I can't reach `Y:\` from here, so I validated via the `dir` listing.
-   The `fs` walker is built + integration-tested; pointing it at `Y:\Car Playlists` is the real dogfood.
-3. **Desktop shell (Electron)** — deferred; building/verifying a GUI unattended risks a broken state.
+Real-drive results (`Y:\Car Playlists\Selection`, 765 audio files → 54 releases):
+- Reconstruction merged the full Led Zeppelin discography, Queen box, Pink Floyd Echoes, The Who, etc.
+- Enrichment corrected titles + added years live: Queen Platinum Collection (2011), George Michael
+  "Ladies & Gentlemen…" (1998), Supertramp "The Very Best Of" (1991).
 
-Say "keep going" + answer #1 and I'll start V1; or we review together.
+The dogfood **earned its keep** — it surfaced 3 real bugs I fixed: (a) year captured as artist for
+`Artist/Album`-nested folders → now uses the parent artist folder; (b) `--limit` was silently capping
+the file walk, not just the enrich count → split into `--scan-limit`; (c) the walker silently dropped
+subtrees on transient network errors → retries + visible skip warnings.
+
+**Still needs you / deferred:** AcoustID fingerprinting (needs your free non-commercial API key + the
+`fpcalc` binary; this is what recovers the mis-parsed artists like "Jefferson"/"U2-The" and the orphans);
+the Electron shell (risky to build unattended); writing enriched tags onto the organized copies.
 
 ---
+
+## ✅ Milestone 5 — MusicBrainz enrichment (V1 start, non-commercial)
+
+`src/engine/enrich/` — a ToS-compliant MusicBrainz client (descriptive User-Agent, ~1 req/s throttle,
+on-disk cache incl. negatives, 503 backoff, offline mode) + a pure, unit-tested match scorer
+(title/artist Dice + track-count proximity) + orchestration. CLI `enrich <path> [--limit N] [--offline]`.
+Live on the real drive it corrects titles and adds release years (→ unlocks classic-vs-new). Matcher has
+3 network-free tests (e.g. picks the right release despite the "Songs Remains The Same" folder typo).
+**Next enrichment step:** AcoustID fingerprinting (needs your API key + `fpcalc`) for the files MB tags
+can't match, then write enriched tags onto the organized copies.
+
+## ✅ Milestone 4 — real-drive dogfood + structural artist resolution
+
+Ran the engine on the actual `Y:\Car Playlists\Selection` (765 files). Fixed the artist/title failure
+modes it exposed (parent-folder artist for `Artist/Album` layouts, year/underscore/en-dash cleanup) and
+two robustness bugs (`--limit` walk-cap overload → `--scan-limit`; silent subtree drops on network
+errors → retries + skip warnings). The Led Zeppelin discography now reconstructs cleanly.
 
 ## ✅ Milestone 3 — collection insights + owner profiling (your original vision)
 

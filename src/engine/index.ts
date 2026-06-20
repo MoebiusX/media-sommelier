@@ -23,4 +23,10 @@ export type { ExecuteReport, ExecuteOptions, ActionResult } from './organize/exe
 export { renderHtml } from './report/html.js';
 export { computeInsights } from './insights/insights.js';
 export type { InsightsReport, CollectionInsights, OwnerProfile, OwnerSignal } from './insights/insights.js';
+export { MusicBrainzClient } from './enrich/musicbrainz.js';
+export type { MBRelease, MusicBrainzClientOptions } from './enrich/musicbrainz.js';
+export { selectBestRelease, scoreRelease, artistCreditName } from './enrich/match.js';
+export type { MatchResult } from './enrich/match.js';
+export { enrichCandidate, enrichTop } from './enrich/enrich.js';
+export type { EnrichedCandidate } from './enrich/enrich.js';
 export { humanBytes, normalize, titleKey } from './text.js';

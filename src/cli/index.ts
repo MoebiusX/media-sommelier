@@ -16,6 +16,8 @@ import {
   executePlan,
   renderHtml,
   computeInsights,
+  MusicBrainzClient,
+  enrichTop,
   walkToArray,
   humanBytes,
   type AlbumCandidate,
@@ -30,10 +32,12 @@ interface Args {
   fromListing: boolean;
   json: boolean;
   execute: boolean;
+  offline: boolean;
   dest?: string;
   html?: string;
   minConfidence: number;
-  limit?: number;
+  limit?: number; // command-specific (e.g. # releases to enrich)
+  scanLimit?: number; // hard cap on files walked (for huge trees)
 }
 
 function parseArgs(argv: string[]): Args {
@@ -56,10 +60,12 @@ function parseArgs(argv: string[]): Args {
     fromListing: flags.get('from-listing') === true,
     json: flags.get('json') === true,
     execute: flags.get('execute') === true,
+    offline: flags.get('offline') === true,
     ...(typeof flags.get('dest') === 'string' ? { dest: flags.get('dest') as string } : {}),
     ...(typeof flags.get('html') === 'string' ? { html: flags.get('html') as string } : {}),
     minConfidence: Number(flags.get('min-confidence') ?? 0),
     ...(flags.get('limit') ? { limit: Number(flags.get('limit')) } : {}),
+    ...(flags.get('scan-limit') ? { scanLimit: Number(flags.get('scan-limit')) } : {}),
   };
 }
 
@@ -68,7 +74,14 @@ async function loadInventory(args: Args): Promise<MediaFileRecord[]> {
     const text = await readFile(args.target, 'utf8');
     return parseDirListing(text);
   }
-  return walkToArray(args.target, { include: ['music'], ...(args.limit ? { limit: args.limit } : {}) });
+  let skipped = 0;
+  const records = await walkToArray(args.target, {
+    include: ['music'],
+    onSkip: () => skipped++,
+    ...(args.scanLimit ? { limit: args.scanLimit } : {}),
+  });
+  if (skipped > 0) console.error(`[warn] ${skipped} path(s) unreadable after retries and skipped (network drive hiccup?) — counts may be low.`);
+  return records;
 }
 
 const C = {
@@ -159,11 +172,13 @@ async function main(): Promise<void> {
   if (args.cmd === 'help' || !args.target) {
     console.log(`Media Sommelier CLI
   sommelier reconstruct <listing.txt> --from-listing [--json] [--html out.html]
-  sommelier reconstruct <dir> [--limit N] [--json] [--html out.html]
+  sommelier reconstruct <dir> [--scan-limit N] [--json] [--html out.html]
   sommelier plan <path> [--from-listing] --dest <out> [--min-confidence N] [--json]
   sommelier organize <path> [--from-listing] --dest <out> [--execute] [--min-confidence N]
     (organize is dry-run unless --execute; originals are never modified)
-  sommelier insights <path> [--from-listing] [--json]   collection + owner profile`);
+  sommelier insights <path> [--from-listing] [--json]   collection + owner profile
+  sommelier enrich <path> [--from-listing] [--limit N] [--offline] [--json]
+    (match top releases to MusicBrainz — corrects title/artist/year, adds MBIDs)`);
     process.exit(args.target ? 0 : 1);
   }
 
@@ -204,6 +219,27 @@ async function main(): Promise<void> {
     const ins = computeInsights(inventory, report);
     if (args.json) console.log(JSON.stringify(ins, null, 2));
     else printInsights(ins);
+  } else if (args.cmd === 'enrich') {
+    const limit = args.limit ?? 6;
+    const client = new MusicBrainzClient({ offline: args.offline });
+    console.log(C.bold(`\n🔎 Enriching top ${limit} releases via MusicBrainz${args.offline ? ' (offline cache)' : ' (rate-limited ~1/s)'}…\n`));
+    const enriched = await enrichTop(report, client, limit);
+    if (args.json) {
+      console.log(JSON.stringify(enriched, null, 2));
+    } else {
+      for (const e of enriched) {
+        const head = `${C.bold(e.before.artist)} — ${e.before.album}${e.before.year ? C.dim(` (${e.before.year})`) : ''}`;
+        if (e.status === 'matched' && e.match) {
+          console.log(`${head}  ${C.green('✓')} ${C.dim(`[${e.match.score}]`)}`);
+          const yr = e.match.year ? ` (${e.match.year})` : '';
+          const ty = e.match.primaryType ? C.dim(` ${e.match.primaryType}`) : '';
+          console.log(`    → ${C.cyan(`${e.match.artist} — ${e.match.album}${yr}`)}${ty}  ${C.dim(`${e.match.trackCount ?? '?'}t · mbid ${e.match.mbid.slice(0, 8)}`)}`);
+        } else {
+          console.log(`${head}  ${C.yellow('· no confident match')}`);
+        }
+      }
+      console.log(C.dim(`\nMusicBrainz: ${client.stats.network} network · ${client.stats.cacheHits} cached · ${client.stats.errors} errors`));
+    }
   } else {
     console.error(`Unknown command: ${args.cmd}`);
     process.exit(1);
