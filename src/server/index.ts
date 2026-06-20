@@ -272,7 +272,7 @@ const server = createServer(async (req, res) => {
       const folder = url.searchParams.get('source');
       if (!folder || folder === 'sample') return json(res, { needsFolder: true });
       const r = await scanPhotos(folder);
-      return json(res, { stats: r.stats, photos: r.photos.map((p) => ({ path: p.path, takenAt: p.takenAt ?? null, camera: p.camera ?? '', width: p.width ?? null, height: p.height ?? null, gps: p.gpsLat != null, sizeBytes: p.sizeBytes })) });
+      return json(res, { stats: r.stats, photos: r.photos.map((p) => ({ path: p.path, name: p.name, takenAt: p.takenAt ?? null, camera: p.camera ?? '', width: p.width ?? null, height: p.height ?? null, gps: p.gpsLat != null, gpsLat: p.gpsLat ?? null, gpsLon: p.gpsLon ?? null, sizeBytes: p.sizeBytes })) });
     }
     if (url.pathname === '/api/library') {
       const folder = url.searchParams.get('source');
