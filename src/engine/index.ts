@@ -21,4 +21,6 @@ export type { OrganizePlan, OrganizeAction, OrganizeOptions } from './organize/p
 export { executePlan } from './organize/execute.js';
 export type { ExecuteReport, ExecuteOptions, ActionResult } from './organize/execute.js';
 export { renderHtml } from './report/html.js';
+export { computeInsights } from './insights/insights.js';
+export type { InsightsReport, CollectionInsights, OwnerProfile, OwnerSignal } from './insights/insights.js';
 export { humanBytes, normalize, titleKey } from './text.js';

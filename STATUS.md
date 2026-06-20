@@ -2,6 +2,19 @@
 
 _Running log so we can review on your return. Newest first._
 
+## ✅ Milestone 3 — collection insights + owner profiling (your original vision)
+
+The "tell me interesting things about the collection and its owner" feature, V0. Run it:
+```bash
+npx tsx src/cli/index.ts insights test/fixtures/real-world/car-playlists-selection.dir.txt --from-listing
+```
+On your sample it produces:
+- **Collection:** 0% lossless (all MP3), 50% compilations, 63% releases numbered, 3 multi-disc, 2 orphans, top artists by track count, ~8.9 MB/track.
+- **Owner archetypes (ranked, with confidence + why):** "Convenience over fidelity" [0.80], "Curated/casual listener (greatest-hits driven)" [0.75], "Sampler, not a completionist" [0.60].
+- **Honest gating (the review's key demand):** build-history timeline **withheld** — "99% of files share one date (2024-10-30) → bulk copy, timestamps aren't real acquisition"; classic-vs-new **declined** — "release year known for only 13% of releases, needs V1 enrichment". This is the plan's "lead with survivable signals, gate the rest" principle, working.
+
+`src/engine/insights/insights.ts` + CLI `insights` + 5 tests. 100% local; nothing leaves the machine.
+
 ## ✅ Milestone 2 — copy execution (verified) + HTML report + organize CLI
 
 - **Copy executor** (`src/engine/organize/execute.ts`): copies into the new tree via temp-file +

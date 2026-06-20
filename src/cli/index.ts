@@ -15,11 +15,13 @@ import {
   planOrganize,
   executePlan,
   renderHtml,
+  computeInsights,
   walkToArray,
   humanBytes,
   type AlbumCandidate,
   type MediaFileRecord,
   type ReconstructionReport,
+  type InsightsReport,
 } from '../engine/index.js';
 
 interface Args {
@@ -129,6 +131,29 @@ function printPlan(report: ReconstructionReport, destRoot: string, minConfidence
   console.log('');
 }
 
+function bar(ratio: number, width = 20): string {
+  const n = Math.round(ratio * width);
+  return '█'.repeat(n) + C.dim('░'.repeat(width - n));
+}
+
+function printInsights(ins: InsightsReport): void {
+  const c = ins.collection;
+  console.log(C.bold('\n🍷 Collection insights\n'));
+  console.log(`Releases ${C.bold(String(c.releases))} · tracks ${C.bold(String(c.tracks))} · ${humanBytes(c.bytes)} · avg ${c.avgTrackMB.toFixed(1)} MB/track`);
+  console.log(`Lossless  ${bar(c.losslessRatio)} ${(c.losslessRatio * 100).toFixed(0)}%   formats: ${Object.entries(c.formats).map(([k, v]) => `${k}×${v}`).join(', ')}`);
+  console.log(`Compilations ${bar(c.compilationRatio)} ${(c.compilationRatio * 100).toFixed(0)}%   numbered ${(c.numberedReleaseRatio * 100).toFixed(0)}%   multi-disc ${c.multiDisc} · orphans ${c.orphans}`);
+  if (Object.keys(c.decadeHistogram).length) console.log(`Decades: ${Object.entries(c.decadeHistogram).sort().map(([d, n]) => `${d}:${n}`).join(' ')}  ${C.dim(`(year known ${(c.knownYearRatio * 100).toFixed(0)}%)`)}`);
+  console.log(C.dim(`Top artists: ${c.topArtists.slice(0, 5).map((a) => `${a.artist} (${a.tracks}t)`).join(', ')}`));
+
+  const o = ins.owner;
+  console.log(C.bold('\n👤 Owner profile') + C.dim('  (heuristic, 100% local)\n'));
+  for (const a of o.archetypes) console.log(`  ${C.green('▸')} ${C.bold(a.label)} ${C.dim(`[${a.confidence.toFixed(2)}]`)}\n      ${C.dim(a.why)}`);
+  console.log(`  ${o.buildHistory.reliable ? C.green('●') : C.yellow('●')} Build history: ${o.buildHistory.reliable ? 'reliable' : C.yellow('withheld')}\n      ${C.dim(o.buildHistory.reason)}`);
+  console.log(`  ${o.classicVsNew.computable ? C.green('●') : C.yellow('●')} Classic-vs-new: ${o.classicVsNew.computable ? `${Math.round((o.classicVsNew.classicPct ?? 0) * 100)}% pre-${o.classicVsNew.cutoff}` : C.yellow('not computable')}\n      ${C.dim(o.classicVsNew.reason)}`);
+  for (const s of o.signals) console.log(C.dim(`  · ${s.label} — ${s.why}`));
+  console.log('');
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (args.cmd === 'help' || !args.target) {
@@ -137,7 +162,8 @@ async function main(): Promise<void> {
   sommelier reconstruct <dir> [--limit N] [--json] [--html out.html]
   sommelier plan <path> [--from-listing] --dest <out> [--min-confidence N] [--json]
   sommelier organize <path> [--from-listing] --dest <out> [--execute] [--min-confidence N]
-    (organize is dry-run unless --execute; originals are never modified)`);
+    (organize is dry-run unless --execute; originals are never modified)
+  sommelier insights <path> [--from-listing] [--json]   collection + owner profile`);
     process.exit(args.target ? 0 : 1);
   }
 
@@ -174,6 +200,10 @@ async function main(): Promise<void> {
         `${result.failed ? C.red(`${result.failed} failed`) : '0 failed'} · ${humanBytes(result.bytesCopied)} written`,
     );
     for (const r of result.results.filter((x) => x.status === 'failed')) console.log(C.red(`  ✗ ${r.action.destRelPath}: ${r.error}`));
+  } else if (args.cmd === 'insights') {
+    const ins = computeInsights(inventory, report);
+    if (args.json) console.log(JSON.stringify(ins, null, 2));
+    else printInsights(ins);
   } else {
     console.error(`Unknown command: ${args.cmd}`);
     process.exit(1);
