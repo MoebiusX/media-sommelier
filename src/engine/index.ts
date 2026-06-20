@@ -18,4 +18,7 @@ export { parseName } from './reconstruct/parseName.js';
 export { reconstruct } from './reconstruct/reconstruct.js';
 export { planOrganize, sanitizeSegment } from './organize/plan.js';
 export type { OrganizePlan, OrganizeAction, OrganizeOptions } from './organize/plan.js';
+export { executePlan } from './organize/execute.js';
+export type { ExecuteReport, ExecuteOptions, ActionResult } from './organize/execute.js';
+export { renderHtml } from './report/html.js';
 export { humanBytes, normalize, titleKey } from './text.js';

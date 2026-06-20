@@ -2,6 +2,21 @@
 
 _Running log so we can review on your return. Newest first._
 
+## ✅ Milestone 2 — copy execution (verified) + HTML report + organize CLI
+
+- **Copy executor** (`src/engine/organize/execute.ts`): copies into the new tree via temp-file +
+  atomic rename, **re-hashes every copy and asserts it matches the source**, idempotent/resumable
+  (identical destinations skipped). Source is only ever read.
+- **fs walk → reconstruct → plan → execute integration test**: synthesizes a scattered album on a
+  real temp filesystem, runs the whole pipeline, asserts copies are hash-verified, **originals
+  unchanged**, and re-runs are idempotent (5 copied → 0 copied/5 skipped). This also proves the real
+  `fs` walker, not just the listing import.
+- **HTML report** (`src/engine/report/html.ts`): self-contained dark-mode page of reconstructed
+  releases (confidence colors, flags, collapsible disc/track tree). Generated sample committed at
+  [`docs/sample-report.html`](docs/sample-report.html) — open it in a browser.
+- **CLI `organize`** command: dry-run by default, `--execute` to copy; `reconstruct --html <file>`.
+- **15 tests** total, `tsc --noEmit` clean.
+
 ## ✅ Milestone 1 — engine vertical slice works end-to-end on your real data
 
 The whole V0 spine is built, typechecked, tested, and **proven on your `Y:\Car Playlists\Selection`

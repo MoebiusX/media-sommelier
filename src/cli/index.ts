@@ -8,11 +8,13 @@
  *
  * Flags: --json (machine output), --min-confidence <n>, --limit <n> (walk cap).
  */
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import {
   parseDirListing,
   reconstruct,
   planOrganize,
+  executePlan,
+  renderHtml,
   walkToArray,
   humanBytes,
   type AlbumCandidate,
@@ -25,7 +27,9 @@ interface Args {
   target: string;
   fromListing: boolean;
   json: boolean;
+  execute: boolean;
   dest?: string;
+  html?: string;
   minConfidence: number;
   limit?: number;
 }
@@ -49,7 +53,9 @@ function parseArgs(argv: string[]): Args {
     target: positionals[1] ?? '',
     fromListing: flags.get('from-listing') === true,
     json: flags.get('json') === true,
+    execute: flags.get('execute') === true,
     ...(typeof flags.get('dest') === 'string' ? { dest: flags.get('dest') as string } : {}),
+    ...(typeof flags.get('html') === 'string' ? { html: flags.get('html') as string } : {}),
     minConfidence: Number(flags.get('min-confidence') ?? 0),
     ...(flags.get('limit') ? { limit: Number(flags.get('limit')) } : {}),
   };
@@ -127,9 +133,11 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (args.cmd === 'help' || !args.target) {
     console.log(`Media Sommelier CLI
-  sommelier reconstruct <listing.txt> --from-listing [--json]
-  sommelier reconstruct <dir> [--limit N] [--json]
-  sommelier plan <path> [--from-listing] --dest <out> [--min-confidence N] [--json]`);
+  sommelier reconstruct <listing.txt> --from-listing [--json] [--html out.html]
+  sommelier reconstruct <dir> [--limit N] [--json] [--html out.html]
+  sommelier plan <path> [--from-listing] --dest <out> [--min-confidence N] [--json]
+  sommelier organize <path> [--from-listing] --dest <out> [--execute] [--min-confidence N]
+    (organize is dry-run unless --execute; originals are never modified)`);
     process.exit(args.target ? 0 : 1);
   }
 
@@ -137,12 +145,35 @@ async function main(): Promise<void> {
   const report = reconstruct(inventory);
 
   if (args.cmd === 'reconstruct') {
+    if (args.html) {
+      await writeFile(args.html, renderHtml(report), 'utf8');
+      console.log(C.green(`Wrote HTML report → ${args.html}`));
+    }
     if (args.json) console.log(JSON.stringify(report, null, 2));
     else printReport(report);
   } else if (args.cmd === 'plan') {
     const destRoot = args.dest ?? './organized';
     if (args.json) console.log(JSON.stringify(planOrganize(report.candidates, { destRoot, minConfidence: args.minConfidence }), null, 2));
     else printPlan(report, destRoot, args.minConfidence);
+  } else if (args.cmd === 'organize') {
+    const destRoot = args.dest ?? './organized';
+    const plan = planOrganize(report.candidates, { destRoot, minConfidence: args.minConfidence });
+    if (!args.execute) {
+      printPlan(report, destRoot, args.minConfidence);
+      console.log(C.yellow('Dry-run only. Pass --execute to copy (originals are never modified).'));
+      return;
+    }
+    console.log(C.bold(`\nCopying ${plan.actions.length} files → ${destRoot} (verifying each by hash)…\n`));
+    const result = await executePlan(plan, {
+      onProgress: (done, total) => {
+        if (done % 25 === 0 || done === total) process.stdout.write(`\r  ${done}/${total}`);
+      },
+    });
+    console.log(
+      `\n\n${C.green(`${result.copied} copied`)} · ${result.skipped} skipped · ` +
+        `${result.failed ? C.red(`${result.failed} failed`) : '0 failed'} · ${humanBytes(result.bytesCopied)} written`,
+    );
+    for (const r of result.results.filter((x) => x.status === 'failed')) console.log(C.red(`  ✗ ${r.action.destRelPath}: ${r.error}`));
   } else {
     console.error(`Unknown command: ${args.cmd}`);
     process.exit(1);
