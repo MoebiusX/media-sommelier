@@ -172,6 +172,24 @@ export interface SyncStatus {
   error?: string;
 }
 
+export interface RefreshMatch {
+  mbid: string;
+  releaseGroupMbid?: string;
+  artist: string;
+  album: string;
+  year?: number;
+  trackCount?: number;
+  score: number;
+}
+
+export interface RefreshPreview {
+  ok: boolean;
+  matched: boolean;
+  before: { title: string; year: number | null };
+  match?: RefreshMatch;
+  coverFetched: boolean;
+}
+
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) {
@@ -239,6 +257,14 @@ export const api = {
     post<{ ok: boolean }>('/api/profile/remove', b),
   syncProfile: (id: number) => post<{ ok: boolean; error?: string; job: SyncStatus }>('/api/profile/sync', { id }),
   syncStatus: () => get<SyncStatus>('/api/profile/sync/status'),
+
+  // ---- online refresh (metadata + cover) ----
+  refreshAlbum: (albumId: string) => post<RefreshPreview>('/api/album/refresh', { albumId }),
+  applyRefresh: (b: { albumId: string; title?: string; year?: number; cover?: boolean; mbid?: string }) =>
+    post<{ ok: boolean }>('/api/album/refresh/apply', b),
+  cancelRefresh: (albumId: string) => post<{ ok: boolean }>('/api/album/refresh/cancel', { albumId }),
+  pendingCoverUrl: (albumId: string) =>
+    `/api/album/refresh/cover?albumId=${encodeURIComponent(albumId)}&pending=1`,
 };
 
 // ---- formatting helpers ----

@@ -11,12 +11,13 @@
  * enforces dest-outside-source + collision-fail). Only data/ and the chosen destination are written.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { mkdirSync, createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { mkdirSync, createReadStream, existsSync } from 'node:fs';
+import { stat, mkdir, writeFile, rename, unlink } from 'node:fs/promises';
 import { dirname, resolve, sep, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
+import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import {
   readCover,
@@ -25,10 +26,14 @@ import {
   planOrganize,
   executePlan,
   sanitizeSegment,
+  MusicBrainzClient,
+  selectBestRelease,
+  artistCreditName,
   ORGANIZE_PRESETS,
   type OrganizePlan,
   type OrganizeAction,
   type TrackTags,
+  type AlbumCandidate,
 } from '../engine/index.js';
 import { ingest } from './ingest.js';
 
@@ -66,6 +71,17 @@ export function openDb(dbPath: string = DB_PATH): Database.Database {
       albumId   TEXT    NOT NULL,
       addedAt   INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (profileId, albumId)
+    );
+    -- Online metadata/cover refreshes (MusicBrainz + Cover Art Archive). Durable across re-ingest:
+    -- clearAll never touches this, /api/cover serves coverPath from here, and ingest re-applies
+    -- title/year. albumId is a deterministic slug so an override re-binds after a re-scan.
+    CREATE TABLE IF NOT EXISTS album_overrides (
+      albumId   TEXT PRIMARY KEY,
+      title     TEXT,
+      year      INTEGER,
+      coverPath TEXT,
+      mbid      TEXT,
+      fetchedAt INTEGER NOT NULL DEFAULT 0
     );
   `);
   return db;
@@ -523,6 +539,134 @@ function startSync(db: Database.Database, profileId: number): { ok: boolean; err
   return { ok: true, job: syncJob };
 }
 
+/* ============= online refresh (MusicBrainz + Cover Art Archive) =============
+ * "Refresh metadata/cover" looks an album up on MusicBrainz, fetches front cover art from the Cover
+ * Art Archive, and — on the user's confirm — applies canonical title/year + the cover. SOURCE MEDIA IS
+ * NEVER WRITTEN: covers cache under data/covers and the only mutation is the DB index. Applied changes
+ * live in album_overrides (durable across re-ingest; /api/cover serves their cover, ingest re-applies
+ * title/year). */
+
+const COVER_DIR = 'data/covers';
+const CAA_UA = 'MediaSommelier/0.1.0 ( https://github.com/MoebiusX/media-sommelier )';
+const mbClient = new MusicBrainzClient({ cacheDir: 'data/mb-cache' });
+const sha1 = (s: string): string => createHash('sha1').update(s).digest('hex');
+const pendingCoverPath = (albumId: string): string => join(COVER_DIR, `${sha1(albumId)}.pending.jpg`);
+const finalCoverPath = (albumId: string): string => join(COVER_DIR, `${sha1(albumId)}.jpg`);
+
+interface RefreshMatch {
+  mbid: string;
+  releaseGroupMbid?: string;
+  artist: string;
+  album: string;
+  year?: number;
+  trackCount?: number;
+  score: number;
+}
+
+/** Look an indexed album up on MusicBrainz; return the best scored release match (or null). */
+async function lookupAlbum(album: { artistName: string; title: string; trackCount: number }): Promise<RefreshMatch | null> {
+  const releases = await mbClient.searchReleases(album.artistName, album.title);
+  if (releases.length === 0) return null;
+  const partial = { albumTitle: album.title, albumArtist: album.artistName, totalTracks: album.trackCount } as AlbumCandidate;
+  const best = selectBestRelease(partial, releases, 0.45);
+  if (!best) return null;
+  const r = best.release;
+  const ym = r.date?.match(/^(\d{4})/);
+  return {
+    mbid: r.id,
+    ...(r['release-group']?.id ? { releaseGroupMbid: r['release-group'].id } : {}),
+    artist: artistCreditName(r) || album.artistName,
+    album: r.title,
+    ...(ym ? { year: Number(ym[1]) } : {}),
+    ...(r['track-count'] != null ? { trackCount: r['track-count'] } : {}),
+    score: Math.round(best.score * 100) / 100,
+  };
+}
+
+/** Fetch a 500px front cover from the Cover Art Archive (release, then release-group). JPEG bytes or null. */
+async function fetchFrontCover(m: { mbid: string; releaseGroupMbid?: string }): Promise<Buffer | null> {
+  const urls = [
+    `https://coverartarchive.org/release/${m.mbid}/front-500`,
+    ...(m.releaseGroupMbid ? [`https://coverartarchive.org/release-group/${m.releaseGroupMbid}/front-500`] : []),
+  ];
+  for (const u of urls) {
+    try {
+      const res = await fetch(u, { headers: { 'User-Agent': CAA_UA } });
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length > 0) return buf;
+      }
+    } catch {
+      /* try next source */
+    }
+  }
+  return null;
+}
+
+/** Run a lookup for one album and stage the fetched cover under its pending path. */
+async function refreshAlbum(
+  db: Database.Database,
+  albumId: string,
+): Promise<{ matched: boolean; before: { title: string; year: number | null }; match?: RefreshMatch; coverFetched: boolean } | null> {
+  const al = db.prepare('SELECT id, title, artistName, year, trackCount FROM albums WHERE id = ?').get(albumId) as
+    | { title: string; artistName: string; year: number | null; trackCount: number }
+    | undefined;
+  if (!al) return null;
+  const before = { title: al.title, year: al.year };
+  const match = await lookupAlbum({ artistName: al.artistName, title: al.title, trackCount: al.trackCount });
+  if (!match) return { matched: false, before, coverFetched: false };
+  let coverFetched = false;
+  const cover = await fetchFrontCover(match);
+  if (cover) {
+    await mkdir(COVER_DIR, { recursive: true });
+    await writeFile(pendingCoverPath(albumId), cover);
+    coverFetched = true;
+  }
+  return { matched: true, before, match, coverFetched };
+}
+
+/** Commit a refresh: stage cover → final, upsert the durable override, update the live album row. */
+async function applyRefresh(
+  db: Database.Database,
+  albumId: string,
+  opts: { title?: string; year?: number; cover?: boolean; mbid?: string },
+): Promise<void> {
+  let coverPath: string | null = null;
+  if (opts.cover) {
+    const pend = pendingCoverPath(albumId);
+    if (existsSync(pend)) {
+      await mkdir(COVER_DIR, { recursive: true });
+      const fin = finalCoverPath(albumId);
+      await rename(pend, fin);
+      coverPath = fin;
+    }
+  }
+  db.prepare(
+    `INSERT INTO album_overrides(albumId,title,year,coverPath,mbid,fetchedAt)
+     VALUES(@albumId,@title,@year,@coverPath,@mbid,@now)
+     ON CONFLICT(albumId) DO UPDATE SET
+       title=COALESCE(excluded.title, title),
+       year=COALESCE(excluded.year, year),
+       coverPath=COALESCE(excluded.coverPath, coverPath),
+       mbid=COALESCE(excluded.mbid, mbid),
+       fetchedAt=excluded.fetchedAt`,
+  ).run({
+    albumId,
+    title: opts.title ?? null,
+    year: opts.year ?? null,
+    coverPath,
+    mbid: opts.mbid ?? null,
+    now: Date.now(),
+  });
+  if (opts.title != null || opts.year != null) {
+    db.prepare('UPDATE albums SET title=COALESCE(?,title), year=COALESCE(?,year) WHERE id=?').run(
+      opts.title ?? null,
+      opts.year ?? null,
+      albumId,
+    );
+  }
+}
+
 /**
  * Start the organize copy (the payoff). Spawns the reorg as a CHILD PROCESS of this server so the long
  * file copy runs isolated (killable, non-blocking) and streams progress back over stdout. Originals are
@@ -716,6 +860,17 @@ function album(db: Database.Database, res: ServerResponse, id: string): void {
 async function cover(db: Database.Database, res: ServerResponse, params: URLSearchParams): Promise<void> {
   const albumId = params.get('albumId');
   const rawPath = params.get('path');
+  // A refreshed (Cover Art Archive) cover wins over embedded/folder art — serve the cached image directly.
+  if (albumId) {
+    const ov = db.prepare('SELECT coverPath FROM album_overrides WHERE albumId = ?').get(albumId) as
+      | { coverPath: string | null }
+      | undefined;
+    if (ov?.coverPath && existsSync(ov.coverPath)) {
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=300' });
+      pipeSafe(createReadStream(ov.coverPath), res);
+      return;
+    }
+  }
   const lookupPaths: string[] = [];
   if (albumId) {
     const row = db.prepare('SELECT coverPath FROM albums WHERE id = ?').get(albumId) as
@@ -990,6 +1145,46 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     return json(res, r.ok ? 202 : 409, r);
   }
   if (path === '/api/profile/sync/status') return json(res, 200, syncJob);
+
+  // ---- online refresh (metadata + cover) ----
+  if (path === '/api/album/refresh' && method === 'POST') {
+    const b = await readBody(req);
+    const albumId = String(b.albumId ?? '');
+    if (!albumId) return json(res, 400, { ok: false, error: 'no_albumId' });
+    const r = await refreshAlbum(db, albumId);
+    if (!r) return json(res, 404, { ok: false, error: 'album_not_found' });
+    return json(res, 200, { ok: true, ...r });
+  }
+  if (path === '/api/album/refresh/cover' && method === 'GET') {
+    const albumId = url.searchParams.get('albumId') ?? '';
+    const p = url.searchParams.get('pending') === '1' ? pendingCoverPath(albumId) : finalCoverPath(albumId);
+    if (!albumId || !existsSync(p)) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
+    pipeSafe(createReadStream(p), res);
+    return;
+  }
+  if (path === '/api/album/refresh/apply' && method === 'POST') {
+    const b = await readBody(req);
+    const albumId = String(b.albumId ?? '');
+    if (!albumId) return json(res, 400, { ok: false, error: 'no_albumId' });
+    await applyRefresh(db, albumId, {
+      ...(b.title != null ? { title: String(b.title) } : {}),
+      ...(b.year != null ? { year: Number(b.year) } : {}),
+      cover: !!b.cover,
+      ...(b.mbid != null ? { mbid: String(b.mbid) } : {}),
+    });
+    return json(res, 200, { ok: true });
+  }
+  if (path === '/api/album/refresh/cancel' && method === 'POST') {
+    const b = await readBody(req);
+    const p = pendingCoverPath(String(b.albumId ?? ''));
+    if (existsSync(p)) await unlink(p).catch(() => {});
+    return json(res, 200, { ok: true });
+  }
 
   // ---- read endpoints ----
   if (path === '/api/overview') return overview(db, res);

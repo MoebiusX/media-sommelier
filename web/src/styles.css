@@ -1059,6 +1059,99 @@ select.sb-input {
   padding-top: 11px;
 }
 
+/* ---------- Refresh metadata/cover panel ---------- */
+.refresh-panel {
+  margin-top: 16px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  max-width: 560px;
+}
+.refresh-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.refresh-title {
+  font-weight: 600;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.refresh-body {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.refresh-covers {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+.refresh-covers .rc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.refresh-covers .cover {
+  width: 84px;
+  height: 84px;
+  border-radius: 8px;
+}
+.refresh-covers .rc-arrow {
+  color: var(--text-faint);
+  font-size: 18px;
+}
+.refresh-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.refresh-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.refresh-field input {
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+  flex: none;
+}
+.rf-from {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+.rf-to {
+  color: var(--accent-2);
+  font-weight: 560;
+}
+.refresh-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+.refresh-nomatch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--text-dim);
+  font-size: 13.5px;
+}
+
 /* ---------- Sync profiles (Drives page) ---------- */
 .profile-list {
   display: flex;

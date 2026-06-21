@@ -436,6 +436,15 @@ export async function ingest(
   clearAll(db);
   populate(db, scan.tracks, report.candidates, mapped);
 
+  // Re-apply any online refresh overrides (title/year) onto the freshly rebuilt albums. Covers are
+  // served straight from album_overrides by /api/cover, so they need no re-apply here.
+  db.exec(`
+    UPDATE albums SET
+      title = COALESCE((SELECT o.title FROM album_overrides o WHERE o.albumId = albums.id), title),
+      year  = COALESCE((SELECT o.year  FROM album_overrides o WHERE o.albumId = albums.id), year)
+    WHERE id IN (SELECT albumId FROM album_overrides);
+  `);
+
   // single source of truth for the artist headline: the canonicalized artists table
   const artistRows = (db.prepare('SELECT COUNT(*) c FROM artists').get() as { c: number }).c;
 

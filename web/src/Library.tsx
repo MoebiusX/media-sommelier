@@ -8,6 +8,7 @@ import {
   type ArtistDetail,
   type ArtistSummary,
   type ProfileSummary,
+  type RefreshPreview,
 } from './api';
 import { Cover, ErrorState, FlagBadges, Icon, Loading } from './ui';
 import { usePlayer, type PlayerTrack } from './player';
@@ -279,6 +280,149 @@ function AddToProfileButton({ albumId }: { albumId: string }) {
   );
 }
 
+/* ---------------- Refresh metadata/cover (MusicBrainz + Cover Art Archive) ---------------- */
+function RefreshPanel({
+  album,
+  onClose,
+  onApplied,
+}: {
+  album: AlbumDetail;
+  onClose: () => void;
+  onApplied: () => void;
+}) {
+  const [state, setState] = useState<'loading' | 'matched' | 'nomatch' | 'applying'>('loading');
+  const [preview, setPreview] = useState<RefreshPreview | null>(null);
+  const [applyTitle, setApplyTitle] = useState(true);
+  const [applyYear, setApplyYear] = useState(true);
+  const [applyCover, setApplyCover] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .refreshAlbum(album.id)
+      .then((r) => {
+        if (!alive) return;
+        if (r.matched && r.match) {
+          setPreview(r);
+          setState('matched');
+        } else {
+          setState('nomatch');
+        }
+      })
+      .catch(() => alive && setState('nomatch'));
+    return () => {
+      alive = false;
+    };
+  }, [album.id]);
+
+  const m = preview?.match;
+  const titleChanges = !!m && m.album !== album.title;
+  const yearChanges = !!m && m.year != null && m.year !== album.year;
+
+  async function apply() {
+    if (!m) return;
+    setState('applying');
+    await api.applyRefresh({
+      albumId: album.id,
+      ...(applyTitle && titleChanges ? { title: m.album } : {}),
+      ...(applyYear && m.year != null ? { year: m.year } : {}),
+      cover: applyCover && preview!.coverFetched,
+      mbid: m.mbid,
+    });
+    onApplied();
+  }
+  async function skip() {
+    await api.cancelRefresh(album.id).catch(() => {});
+    onClose();
+  }
+
+  return (
+    <div className="refresh-panel">
+      {state === 'loading' && (
+        <div className="sb-line">
+          <span className="spinner-sm" /> Searching MusicBrainz…
+        </div>
+      )}
+      {state === 'nomatch' && (
+        <div className="refresh-nomatch">
+          <span>No confident MusicBrainz match for this album. Nothing changed.</span>
+          <button className="btn ghost" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      )}
+      {(state === 'matched' || state === 'applying') && m && (
+        <>
+          <div className="refresh-head">
+            <span className="refresh-title">
+              MusicBrainz match <span className="badge good">{Math.round(m.score * 100)}%</span>
+            </span>
+            <span className="muted">{m.artist}</span>
+          </div>
+          <div className="refresh-body">
+            {preview!.coverFetched && (
+              <div className="refresh-covers">
+                <div className="rc">
+                  <Cover albumId={album.id} title={album.title} />
+                  <span>current</span>
+                </div>
+                <span className="rc-arrow">→</span>
+                <div className="rc">
+                  <div className="cover">
+                    <img src={api.pendingCoverUrl(album.id)} alt="" />
+                  </div>
+                  <span>Cover Art Archive</span>
+                </div>
+              </div>
+            )}
+            <div className="refresh-fields">
+              {titleChanges && (
+                <label className="refresh-field">
+                  <input type="checkbox" checked={applyTitle} onChange={(e) => setApplyTitle(e.target.checked)} />
+                  <span>
+                    Title <span className="rf-from">{album.title}</span> →{' '}
+                    <span className="rf-to">{m.album}</span>
+                  </span>
+                </label>
+              )}
+              {yearChanges && (
+                <label className="refresh-field">
+                  <input type="checkbox" checked={applyYear} onChange={(e) => setApplyYear(e.target.checked)} />
+                  <span>
+                    Year <span className="rf-from">{album.year ?? '—'}</span> →{' '}
+                    <span className="rf-to">{m.year}</span>
+                  </span>
+                </label>
+              )}
+              {preview!.coverFetched && (
+                <label className="refresh-field">
+                  <input type="checkbox" checked={applyCover} onChange={(e) => setApplyCover(e.target.checked)} />
+                  <span>Use the fetched cover art</span>
+                </label>
+              )}
+              {!titleChanges && !yearChanges && !preview!.coverFetched && (
+                <div className="muted">Matched, but nothing new to apply (already up to date).</div>
+              )}
+            </div>
+          </div>
+          <div className="refresh-actions">
+            <button
+              className="btn primary"
+              onClick={() => void apply()}
+              disabled={state === 'applying' || (!titleChanges && !yearChanges && !preview!.coverFetched)}
+            >
+              {state === 'applying' ? 'Applying…' : 'Apply'}
+            </button>
+            <button className="btn ghost" onClick={() => void skip()} disabled={state === 'applying'}>
+              Skip
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- Album page (tracks) ---------------- */
 function AlbumPage({
   id,
@@ -291,10 +435,18 @@ function AlbumPage({
 }) {
   const [data, setData] = useState<AlbumDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [coverVersion, setCoverVersion] = useState(0);
+  const [refreshOpen, setRefreshOpen] = useState(false);
+
+  // Clear to the loading state only when navigating to a different album (not on a refresh re-fetch).
+  useEffect(() => {
+    setData(null);
+    setRefreshOpen(false);
+  }, [id]);
 
   useEffect(() => {
     let alive = true;
-    setData(null);
     setError(null);
     api
       .album(id)
@@ -303,7 +455,7 @@ function AlbumPage({
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, reloadKey]);
 
   const artistName = data?.artistName ?? fallbackArtist;
 
@@ -369,7 +521,7 @@ function AlbumPage({
         <>
           <div className="album-head">
             <div style={{ width: 180, flex: 'none' }}>
-              <Cover albumId={data.id} title={data.title} />
+              <Cover albumId={data.id} title={data.title} version={coverVersion} />
             </div>
             <div className="album-head-info">
               <h1>{data.title}</h1>
@@ -410,7 +562,25 @@ function AlbumPage({
                   Play album
                 </button>
                 <AddToProfileButton albumId={data.id} />
+                <button
+                  className="btn ghost"
+                  onClick={() => setRefreshOpen((v) => !v)}
+                  title="Fetch canonical metadata + cover art from MusicBrainz"
+                >
+                  ⟲ Refresh
+                </button>
               </div>
+              {refreshOpen && (
+                <RefreshPanel
+                  album={data}
+                  onClose={() => setRefreshOpen(false)}
+                  onApplied={() => {
+                    setRefreshOpen(false);
+                    setCoverVersion(Date.now());
+                    setReloadKey((k) => k + 1);
+                  }}
+                />
+              )}
               {data.evidence.length > 0 && (
                 <ul className="evidence">
                   {data.evidence.map((e, i) => (

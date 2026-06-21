@@ -70,6 +70,16 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT NOT NULL                        -- json
 );
 
+-- Online metadata/cover refreshes; survives clearAll so a re-ingest keeps applied covers/title/year.
+CREATE TABLE IF NOT EXISTS album_overrides (
+  albumId   TEXT PRIMARY KEY,
+  title     TEXT,
+  year      INTEGER,
+  coverPath TEXT,
+  mbid      TEXT,
+  fetchedAt INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_tracks_albumId    ON tracks(albumId);
 CREATE INDEX IF NOT EXISTS idx_tracks_artistName ON tracks(artistName);
 CREATE INDEX IF NOT EXISTS idx_albums_artistName ON albums(artistName);

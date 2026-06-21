@@ -63,8 +63,8 @@ export function Icon({
   );
 }
 
-/** Album cover with embedded-art fetch + graceful initials fallback. */
-export function Cover({ albumId, title }: { albumId: string; title: string }) {
+/** Album cover with embedded-art fetch + graceful initials fallback. `version` cache-busts after a refresh. */
+export function Cover({ albumId, title, version }: { albumId: string; title: string; version?: number }) {
   const [failed, setFailed] = useState(false);
   const initials = title
     .replace(/[\[\(].*$/, '')
@@ -73,12 +73,13 @@ export function Cover({ albumId, title }: { albumId: string; title: string }) {
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('');
+  const src = api.coverUrl(albumId) + (version ? `&v=${version}` : '');
   return (
     <div className="cover">
       {failed ? (
         <div className="cover-fallback">{initials || '♪'}</div>
       ) : (
-        <img src={api.coverUrl(albumId)} alt="" loading="lazy" onError={() => setFailed(true)} />
+        <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} />
       )}
     </div>
   );
