@@ -8,11 +8,14 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import Database from 'better-sqlite3';
 import { readCover } from '../engine/index.js';
 
 const PORT = Number(process.env.PORT ?? 4178);
+// SECURITY: bind localhost-only by default — the API returns absolute source paths and must not be
+// reachable beyond this machine. Override HOST only for an explicitly-trusted deployment.
+const HOST = process.env.HOST ?? '127.0.0.1';
 const DB_PATH = resolve(process.env.SOMMELIER_DB ?? 'data/sommelier.db');
 
 /** Open (or create) the SQLite database, ensuring its parent directory exists. */
@@ -60,8 +63,8 @@ interface OverviewMeta {
 }
 
 interface GroupingMeta {
-  folder: { groups: number; orphans: number };
-  tag: { groups: number; orphans: number; untaggedTracks: number; singletonGroups: number };
+  folder: { groups: number; orphanCandidates: number; orphanTracks: number };
+  tag: { groups: number; orphanTracks: number; untaggedTracks: number; singletonGroups: number };
   verdict: string;
 }
 
@@ -87,16 +90,15 @@ function overview(db: Database.Database, res: ServerResponse): void {
     topYears: ov.topYears,
     simulation: g
       ? {
+          // both sides reported in TRACKS so the headline delta is apples-to-apples
           tag: {
             groups: g.tag.groups,
-            orphans: g.tag.orphans,
-            orphanTracks: g.tag.untaggedTracks,
+            orphanTracks: g.tag.orphanTracks,
           },
           folder: {
+            // albums reconstructed (whole groups), and how many TRACKS still fall out as orphans
             groups: g.folder.groups,
-            orphans: g.folder.orphans,
-            // folder orphans are 1-track candidates, so orphan candidates == orphan tracks
-            orphanTracks: g.folder.orphans,
+            orphanTracks: g.folder.orphanTracks,
           },
           verdict: g.verdict,
         }
@@ -124,13 +126,21 @@ function artist(db: Database.Database, res: ServerResponse, name: string): void 
     json(res, 404, { ok: false, error: 'artist_not_found', name });
     return;
   }
+  // Return albums both whose canonical artistName IS this artist AND any album reachable through this
+  // artist's tracks (covers compilations the artist appears on). This matches how albumCount is rolled
+  // up in ingest, so the count and the list always agree.
   const albums = db
     .prepare(
       `SELECT id, title, year, coverPath, trackCount, flags, confidence, lossless, discCount
-       FROM albums WHERE artistName = ?
+       FROM albums
+       WHERE artistName = @name
+          OR id IN (
+            SELECT DISTINCT t.albumId FROM tracks t
+            WHERE t.artistName = @name AND t.albumId IS NOT NULL
+          )
        ORDER BY year ASC, title ASC`,
     )
-    .all(name) as Array<{ flags: string; lossless: number; [k: string]: unknown }>;
+    .all({ name }) as Array<{ flags: string; lossless: number; [k: string]: unknown }>;
   json(res, 200, {
     name: a.name,
     trackCount: a.trackCount,
@@ -181,48 +191,56 @@ async function cover(
   const albumId = params.get('albumId');
   const rawPath = params.get('path');
 
-  let lookupPath: string | undefined;
+  // Build an ordered list of candidate paths to try (folder cover first, then several tracks for
+  // embedded art). A single FLAC can fail to yield a picture even though a sibling track has one, so
+  // we don't give up after the first miss.
+  const lookupPaths: string[] = [];
   if (albumId) {
     const row = db.prepare('SELECT coverPath FROM albums WHERE id = ?').get(albumId) as
       | { coverPath: string | null }
       | undefined;
-    if (row?.coverPath) {
-      lookupPath = row.coverPath;
-    } else {
-      // no folder cover stored — fall back to the album's first track (embedded art)
-      const t = db
-        .prepare(
-          `SELECT path FROM tracks WHERE albumId = ?
-           ORDER BY COALESCE(discNo, 1), COALESCE(trackNo, 9999) LIMIT 1`,
-        )
-        .get(albumId) as { path: string } | undefined;
-      lookupPath = t?.path;
-    }
+    if (row?.coverPath) lookupPaths.push(row.coverPath);
+    // fall back to embedded art from up to 5 of the album's tracks
+    const ts = db
+      .prepare(
+        `SELECT path FROM tracks WHERE albumId = ?
+         ORDER BY COALESCE(discNo, 1), COALESCE(trackNo, 9999) LIMIT 5`,
+      )
+      .all(albumId) as Array<{ path: string }>;
+    for (const t of ts) lookupPaths.push(t.path);
   } else if (rawPath) {
-    // SECURITY: only honor a path that is actually part of the index.
+    // SECURITY (belt and suspenders): the path must (a) resolve under the indexed library root AND
+    // (b) exactly match an indexed track/cover/source path. Either alone is sufficient today; both
+    // together make the read-only invariant explicit rather than implied by the DB's contents.
+    const root = meta<{ root?: string }>(db, 'overview')?.root;
+    const resolved = resolve(rawPath);
+    const underRoot =
+      root != null && (resolved === resolve(root) || resolved.startsWith(resolve(root) + sep));
     const known =
       (db.prepare('SELECT 1 FROM tracks WHERE path = ?').get(rawPath) as unknown) ??
       (db.prepare('SELECT 1 FROM albums WHERE coverPath = ?').get(rawPath) as unknown) ??
       (db.prepare('SELECT 1 FROM albums WHERE sourceDir = ?').get(rawPath) as unknown);
-    if (known) lookupPath = rawPath;
+    if (underRoot && known) lookupPaths.push(rawPath);
   }
 
-  if (!lookupPath) {
+  if (lookupPaths.length === 0) {
     json(res, 404, { ok: false, error: 'cover_not_found' });
     return;
   }
 
-  const c = await readCover(lookupPath);
-  if (!c) {
-    json(res, 404, { ok: false, error: 'no_cover_art' });
-    return;
+  for (const p of lookupPaths) {
+    const c = await readCover(p);
+    if (c) {
+      res.writeHead(200, {
+        'Content-Type': c.mime,
+        'Content-Length': c.data.length,
+        'Cache-Control': 'public, max-age=86400',
+      });
+      res.end(c.data);
+      return;
+    }
   }
-  res.writeHead(200, {
-    'Content-Type': c.mime,
-    'Content-Length': c.data.length,
-    'Cache-Control': 'public, max-age=86400',
-  });
-  res.end(c.data);
+  json(res, 404, { ok: false, error: 'no_cover_art' });
 }
 
 function handle(db: Database.Database, req: IncomingMessage, res: ServerResponse): void {
@@ -270,9 +288,9 @@ export function start(): void {
       json(res, 500, { ok: false, error: 'internal', message: (err as Error).message });
     }
   });
-  server.listen(PORT, () => {
+  server.listen(PORT, HOST, () => {
     // eslint-disable-next-line no-console
-    console.log(`[server2] listening on http://localhost:${PORT}  db=${DB_PATH}`);
+    console.log(`[server2] listening on http://${HOST}:${PORT}  db=${DB_PATH}`);
   });
 }
 

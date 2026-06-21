@@ -83,13 +83,15 @@ export default function OverviewPage({ onArtist }: { onArtist: (name: string) =>
       {sim && (
         <div className="sim">
           <h2 className="sim-headline">
-            Folder reconstruction kept <b>{fmtInt(sim.folder.groups)} albums</b> whole that tag-matching
-            would have shattered into <b>{fmtInt(rescued)} extra orphans</b>.
+            Folder reconstruction rebuilt <b>{fmtInt(sim.folder.groups)} albums</b> and rescued{' '}
+            <b>{fmtInt(Math.max(0, rescued))} tracks</b> that naive tag-matching would have left stranded
+            as orphans.
           </h2>
           <p className="sim-lede">
             Naive tag grouping splinters real releases — inconsistent or missing tags scatter tracks into
             singletons. Reconstructing from folder structure recovers the album the way it was actually
-            ripped and stored.
+            ripped and stored. Both orphan figures below count individual tracks, so the comparison is
+            like-for-like.
           </p>
           <div className="sim-compare">
             <div className="sim-side">

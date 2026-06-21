@@ -33,10 +33,13 @@ function avatarFor(name: string) {
   return name.replace(/^the\s+/i, '').trim().slice(0, 1).toUpperCase() || '?';
 }
 
+const PAGE = 300;
+
 function ArtistsList({ navigate }: { navigate: (v: LibraryView) => void }) {
   const [artists, setArtists] = useState<ArtistSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
+  const [limit, setLimit] = useState(PAGE);
 
   useEffect(() => {
     let alive = true;
@@ -49,6 +52,11 @@ function ArtistsList({ navigate }: { navigate: (v: LibraryView) => void }) {
     };
   }, []);
 
+  // reset paging whenever the search changes
+  useEffect(() => {
+    setLimit(PAGE);
+  }, [q]);
+
   const filtered = useMemo(() => {
     if (!artists) return [];
     const needle = q.trim().toLowerCase();
@@ -57,6 +65,9 @@ function ArtistsList({ navigate }: { navigate: (v: LibraryView) => void }) {
   }, [artists, q]);
 
   if (error) return <ErrorState message={error} />;
+
+  const shown = filtered.slice(0, limit);
+  const hasMore = filtered.length > shown.length;
 
   return (
     <>
@@ -76,29 +87,40 @@ function ArtistsList({ navigate }: { navigate: (v: LibraryView) => void }) {
       ) : filtered.length === 0 ? (
         <div className="empty">No artists match “{q}”.</div>
       ) : (
-        <div className="panel" style={{ padding: 8 }}>
-          <div className="list">
-            {filtered.slice(0, 600).map((a) => (
-              <div
-                key={a.name}
-                className="row"
-                onClick={() => navigate({ kind: 'artist', name: a.name })}
-              >
-                <div className="avatar">{avatarFor(a.name)}</div>
-                <div className="row-main">
-                  <div className="row-title">{a.name}</div>
-                  <div className="row-sub">
-                    {fmtInt(a.trackCount)} tracks
-                    {a.albumCount > 0
-                      ? ` · ${fmtInt(a.albumCount)} album${a.albumCount === 1 ? '' : 's'}`
-                      : ' · orphan tracks only'}
-                  </div>
-                </div>
-                <Icon name="chevron" className="chev" />
-              </div>
-            ))}
+        <>
+          <div className="list-count">
+            Showing {fmtInt(shown.length)} of {fmtInt(filtered.length)}
+            {q.trim() ? ' matching' : ''} artist{filtered.length === 1 ? '' : 's'}
           </div>
-        </div>
+          <div className="panel" style={{ padding: 8 }}>
+            <div className="list">
+              {shown.map((a) => (
+                <div
+                  key={a.name}
+                  className="row"
+                  onClick={() => navigate({ kind: 'artist', name: a.name })}
+                >
+                  <div className="avatar">{avatarFor(a.name)}</div>
+                  <div className="row-main">
+                    <div className="row-title">{a.name}</div>
+                    <div className="row-sub">
+                      {fmtInt(a.trackCount)} tracks
+                      {a.albumCount > 0
+                        ? ` · ${fmtInt(a.albumCount)} album${a.albumCount === 1 ? '' : 's'}`
+                        : ''}
+                    </div>
+                  </div>
+                  <Icon name="chevron" className="chev" />
+                </div>
+              ))}
+            </div>
+          </div>
+          {hasMore && (
+            <button className="load-more" onClick={() => setLimit((n) => n + PAGE)}>
+              Show {fmtInt(Math.min(PAGE, filtered.length - shown.length))} more
+            </button>
+          )}
+        </>
       )}
     </>
   );
@@ -174,8 +196,9 @@ function ArtistPage({ name, navigate }: { name: string; navigate: (v: LibraryVie
           </p>
           {data.albums.length === 0 ? (
             <div className="empty">
-              No reconstructed albums for this artist. Their tracks did not group into a confident folder
-              album.
+              {data.trackCount > 0
+                ? `${fmtInt(data.trackCount)} track${data.trackCount === 1 ? '' : 's'} for this artist are not yet grouped into a folder album.`
+                : 'No tracks indexed for this artist.'}
             </div>
           ) : (
             <div className="album-grid">

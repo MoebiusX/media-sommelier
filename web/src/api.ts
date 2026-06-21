@@ -13,8 +13,8 @@ export interface Overview {
   topGenres: Array<{ name: string; tracks: number }>;
   topYears: Array<{ year: number; tracks: number }>;
   simulation: {
-    tag: { groups: number; orphans: number; orphanTracks: number };
-    folder: { groups: number; orphans: number; orphanTracks: number };
+    tag: { groups: number; orphanTracks: number };
+    folder: { groups: number; orphanTracks: number };
     verdict: string;
   } | null;
 }
