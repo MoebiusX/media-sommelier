@@ -194,6 +194,7 @@ export interface ProfileSummary {
   name: string;
   target: string;
   preset: string;
+  transcodeTo: string;
   createdAt: number;
   lastSyncAt: number | null;
   albumCount: number;
@@ -225,7 +226,7 @@ export interface SyncStatus {
   phase: string;
   done: number;
   total: number;
-  result?: { copied: number; skipped: number; failed: number; bytes: number; dest: string };
+  result?: { copied: number; transcoded?: number; skipped: number; failed: number; bytes: number; dest: string };
   error?: string;
 }
 
@@ -333,9 +334,9 @@ export const api = {
 
   // ---- sync profiles ----
   profiles: () => get<ProfileSummary[]>('/api/profiles'),
-  createProfile: (b: { name: string; target?: string; preset?: string }) =>
+  createProfile: (b: { name: string; target?: string; preset?: string; transcodeTo?: string }) =>
     post<{ ok: boolean; id: number }>('/api/profiles', b),
-  updateProfile: (b: { id: number; name?: string; target?: string; preset?: string }) =>
+  updateProfile: (b: { id: number; name?: string; target?: string; preset?: string; transcodeTo?: string }) =>
     post<{ ok: boolean }>('/api/profiles/update', b),
   deleteProfile: (id: number) => post<{ ok: boolean }>('/api/profiles/delete', { id }),
   profile: (id: number) => get<ProfileDetail>(`/api/profile?id=${id}`),
@@ -345,6 +346,7 @@ export const api = {
     post<{ ok: boolean }>('/api/profile/remove', b),
   syncProfile: (id: number) => post<{ ok: boolean; error?: string; job: SyncStatus }>('/api/profile/sync', { id }),
   syncStatus: () => get<SyncStatus>('/api/profile/sync/status'),
+  cancelSync: () => post<{ ok: boolean }>('/api/profile/sync/cancel', {}),
 
   // ---- online refresh (metadata + cover) ----
   refreshAlbum: (albumId: string) => post<RefreshPreview>('/api/album/refresh', { albumId }),

@@ -1647,6 +1647,11 @@ select.sb-input {
   padding: 10px 13px;
   font-size: 13px;
 }
+.profile-warn.ok {
+  background: rgba(141, 224, 192, 0.07);
+  border-color: rgba(141, 224, 192, 0.28);
+  color: var(--accent-2);
+}
 .profile-actions {
   display: flex;
   gap: 12px;

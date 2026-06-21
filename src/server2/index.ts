@@ -12,12 +12,13 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdirSync, createReadStream, existsSync } from 'node:fs';
-import { stat, mkdir, writeFile, rename, unlink } from 'node:fs/promises';
+import { stat, mkdir, writeFile, rename, unlink, copyFile, rm } from 'node:fs/promises';
 import { dirname, resolve, sep, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import Database from 'better-sqlite3';
 import {
   readCover,
@@ -60,12 +61,13 @@ export function openDb(dbPath: string = DB_PATH): Database.Database {
   // album ids are deterministic slugs, so a saved profile re-joins after a re-scan.
   db.exec(`
     CREATE TABLE IF NOT EXISTS profiles (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      name       TEXT    NOT NULL,
-      target     TEXT    NOT NULL DEFAULT '',
-      preset     TEXT    NOT NULL DEFAULT 'artist-year-album',
-      createdAt  INTEGER NOT NULL DEFAULT 0,
-      lastSyncAt INTEGER
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT    NOT NULL,
+      target      TEXT    NOT NULL DEFAULT '',
+      preset      TEXT    NOT NULL DEFAULT 'artist-year-album',
+      transcodeTo TEXT    NOT NULL DEFAULT 'none',
+      createdAt   INTEGER NOT NULL DEFAULT 0,
+      lastSyncAt  INTEGER
     );
     CREATE TABLE IF NOT EXISTS profile_members (
       profileId INTEGER NOT NULL,
@@ -113,6 +115,14 @@ export function openDb(dbPath: string = DB_PATH): Database.Database {
       PRIMARY KEY (playlistId, trackPath)
     );
   `);
+  // Lightweight migrations for columns added after a table first shipped (ALTER throws if it exists).
+  for (const alter of [`ALTER TABLE profiles ADD COLUMN transcodeTo TEXT NOT NULL DEFAULT 'none'`]) {
+    try {
+      db.exec(alter);
+    } catch {
+      /* column already present */
+    }
+  }
   return db;
 }
 
@@ -402,8 +412,22 @@ interface ProfileRow {
   name: string;
   target: string;
   preset: string;
+  transcodeTo: string; // 'none' | 'mp3'
   createdAt: number;
   lastSyncAt: number | null;
+}
+
+/** Resolve the ffmpeg binary: FFMPEG_PATH env → bundled ffmpeg-static → bare name on PATH. */
+function ffmpegPath(): string {
+  const exe = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  if (process.env.FFMPEG_PATH && existsSync(process.env.FFMPEG_PATH)) return process.env.FFMPEG_PATH;
+  try {
+    const p = createRequire(import.meta.url)('ffmpeg-static') as string | null;
+    if (p && existsSync(p)) return p;
+  } catch {
+    /* fall through to PATH */
+  }
+  return exe;
 }
 
 interface SyncTrackRow {
@@ -514,7 +538,7 @@ function formatBreakdown(rows: SyncTrackRow[]): { formats: Record<string, number
 function listProfiles(db: Database.Database): unknown {
   return db
     .prepare(
-      `SELECT p.id, p.name, p.target, p.preset, p.createdAt, p.lastSyncAt,
+      `SELECT p.id, p.name, p.target, p.preset, p.transcodeTo, p.createdAt, p.lastSyncAt,
         (SELECT COUNT(*) FROM profile_members m WHERE m.profileId = p.id) AS albumCount,
         (SELECT COUNT(*) FROM tracks t WHERE t.albumId IN (SELECT albumId FROM profile_members WHERE profileId = p.id)) AS trackCount,
         (SELECT COALESCE(SUM(sizeBytes),0) FROM tracks t WHERE t.albumId IN (SELECT albumId FROM profile_members WHERE profileId = p.id)) AS bytes
@@ -551,15 +575,88 @@ function profileDetail(db: Database.Database, id: number): unknown {
 async function syncHandler(db: Database.Database, ctx: JobCtx): Promise<unknown> {
   const { profileId } = ctx.params as { profileId: number };
   const prof = db.prepare('SELECT * FROM profiles WHERE id = ?').get(profileId) as ProfileRow;
-  const plan = buildSyncPlan(profileTracks(db, profileId), prof.target, prof.preset);
+  const rows = profileTracks(db, profileId);
   const libRoot = meta<{ root?: string }>(db, 'overview')?.root;
-  ctx.progress(0, plan.actions.length, 'copying');
-  const report = await executePlan(plan, {
-    ...(libRoot ? { sourceRoot: libRoot } : {}),
-    onProgress: (done, total) => ctx.progress(done, total, 'copying'),
-  });
+
+  let result: unknown;
+  if (prof.transcodeTo === 'mp3') {
+    result = await transcodeSync(rows, prof.target, prof.preset, libRoot, ctx);
+  } else {
+    const plan = buildSyncPlan(rows, prof.target, prof.preset);
+    ctx.progress(0, plan.actions.length, 'copying');
+    const report = await executePlan(plan, {
+      ...(libRoot ? { sourceRoot: libRoot } : {}),
+      onProgress: (done, total) => ctx.progress(done, total, 'copying'),
+    });
+    result = { copied: report.copied, skipped: report.skipped, failed: report.failed, bytes: report.bytesCopied, dest: prof.target };
+  }
   db.prepare('UPDATE profiles SET lastSyncAt = ? WHERE id = ?').run(Date.now(), profileId);
-  return { copied: report.copied, skipped: report.skipped, failed: report.failed, bytes: report.bytesCopied, dest: prof.target };
+  return result;
+}
+
+/**
+ * Transcode-aware sync: lossless / car-incompatible sources are re-encoded to MP3 320k via ffmpeg;
+ * everything else is copied as-is. Idempotent (existing dest is skipped), atomic (write temp → rename),
+ * dest-must-be-outside-source guarded, cancellable. SOURCE IS ONLY READ.
+ */
+async function transcodeSync(
+  rows: SyncTrackRow[],
+  target: string,
+  preset: string,
+  libRoot: string | undefined,
+  ctx: JobCtx,
+): Promise<{ copied: number; transcoded: number; skipped: number; failed: number; bytes: number; dest: string }> {
+  if (libRoot && (isUnderRoot(libRoot, target) || isUnderRoot(target, libRoot) || resolve(libRoot) === resolve(target))) {
+    throw new Error(`Refusing to sync: destination "${target}" overlaps the library "${libRoot}".`);
+  }
+  const template = ORGANIZE_PRESETS[preset]?.template ?? ORGANIZE_PRESETS['artist-year-album']!.template;
+  const ffmpeg = ffmpegPath();
+  const tasks = rows.map((r) => {
+    const rel = renderProfilePath(template, r);
+    const srcExt = extLower(r.path);
+    const transcode = PLAYBACK_RISK_EXT.has(srcExt); // lossless / incompatible → MP3
+    const ext = transcode ? 'mp3' : srcExt;
+    return { src: r.path, dest: join(target, rel + (ext ? `.${ext}` : '')), transcode };
+  });
+
+  let copied = 0;
+  let transcoded = 0;
+  let skipped = 0;
+  let failed = 0;
+  let bytes = 0;
+  ctx.progress(0, tasks.length, 'converting + copying');
+  for (let i = 0; i < tasks.length; i++) {
+    if (ctx.cancelled()) break;
+    const t = tasks[i]!;
+    if (existsSync(t.dest)) {
+      skipped++;
+      ctx.progress(i + 1, tasks.length, 'converting + copying');
+      continue;
+    }
+    const tmp = `${t.dest}.somm-${process.pid}.tmp${t.transcode ? '.mp3' : ''}`;
+    try {
+      await mkdir(dirname(t.dest), { recursive: true });
+      if (t.transcode) {
+        // -map 0:a:0 drops embedded art (FLAC pictures can break the encode); tags preserved.
+        await execFileAsync(
+          ffmpeg,
+          ['-y', '-i', t.src, '-map', '0:a:0', '-map_metadata', '0', '-id3v2_version', '3', '-b:a', '320k', tmp],
+          { timeout: 300_000 },
+        );
+        transcoded++;
+      } else {
+        await copyFile(t.src, tmp);
+        copied++;
+      }
+      await rename(tmp, t.dest);
+      bytes += (await stat(t.dest)).size;
+    } catch {
+      failed++;
+      await rm(tmp, { force: true }).catch(() => {});
+    }
+    ctx.progress(i + 1, tasks.length, 'converting + copying');
+  }
+  return { copied: copied + transcoded, transcoded, skipped, failed, bytes, dest: target };
 }
 
 /** Validate a sync request up front (so the POST can reject synchronously like the UI expects). */
@@ -1453,8 +1550,14 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     const name = String(b.name ?? '').trim();
     if (!name) return json(res, 400, { ok: false, error: 'no_name' });
     const info = db
-      .prepare('INSERT INTO profiles(name, target, preset, createdAt) VALUES(?,?,?,?)')
-      .run(name, String(b.target ?? '').trim(), String(b.preset ?? 'artist-year-album'), Date.now());
+      .prepare('INSERT INTO profiles(name, target, preset, transcodeTo, createdAt) VALUES(?,?,?,?,?)')
+      .run(
+        name,
+        String(b.target ?? '').trim(),
+        String(b.preset ?? 'artist-year-album'),
+        b.transcodeTo === 'mp3' ? 'mp3' : 'none',
+        Date.now(),
+      );
     return json(res, 200, { ok: true, id: Number(info.lastInsertRowid) });
   }
   if (path === '/api/profiles/update' && method === 'POST') {
@@ -1463,10 +1566,11 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     if (!id) return json(res, 400, { ok: false, error: 'no_id' });
     const prof = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id) as ProfileRow | undefined;
     if (!prof) return json(res, 404, { ok: false, error: 'profile_not_found' });
-    db.prepare('UPDATE profiles SET name=?, target=?, preset=? WHERE id=?').run(
+    db.prepare('UPDATE profiles SET name=?, target=?, preset=?, transcodeTo=? WHERE id=?').run(
       b.name != null ? String(b.name).trim() || prof.name : prof.name,
       b.target != null ? String(b.target).trim() : prof.target,
       b.preset != null ? String(b.preset) : prof.preset,
+      b.transcodeTo != null ? (b.transcodeTo === 'mp3' ? 'mp3' : 'none') : prof.transcodeTo,
       id,
     );
     return json(res, 200, { ok: true });
@@ -1525,6 +1629,10 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     return json(res, 202, { ok: true, job: syncStatusPayload() });
   }
   if (path === '/api/profile/sync/status') return json(res, 200, syncStatusPayload());
+  if (path === '/api/profile/sync/cancel' && method === 'POST') {
+    const ok = jobs.cancelType('sync');
+    return json(res, ok ? 200 : 409, { ok });
+  }
 
   // ---- listening playlists ----
   if (path === '/api/playlists' && method === 'GET') {

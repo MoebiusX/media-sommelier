@@ -145,6 +145,7 @@ function ProfileCard({
   const [detail, setDetail] = useState<ProfileDetail | null>(null);
   const [target, setTarget] = useState(summary.target);
   const [preset, setPreset] = useState(summary.preset);
+  const [transcode, setTranscode] = useState(summary.transcodeTo === 'mp3');
   const [open, setOpen] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -153,6 +154,7 @@ function ProfileCard({
       setDetail(d);
       setTarget(d.target);
       setPreset(d.preset);
+      setTranscode(d.transcodeTo === 'mp3');
     } catch {
       /* ignore */
     }
@@ -178,6 +180,10 @@ function ProfileCard({
   async function changePreset(v: string) {
     setPreset(v);
     await api.updateProfile({ id: summary.id, preset: v });
+  }
+  async function changeTranscode(v: boolean) {
+    setTranscode(v);
+    await api.updateProfile({ id: summary.id, transcodeTo: v ? 'mp3' : 'none' });
   }
   async function removeAlbum(albumId: string) {
     await api.removeFromProfile({ id: summary.id, albumId });
@@ -243,12 +249,22 @@ function ProfileCard({
             ))}
           </select>
         </label>
+        <label className="check end" title="Re-encode FLAC/lossless to MP3 320k so car stereos can play it">
+          <input
+            type="checkbox"
+            checked={transcode}
+            onChange={(e) => void changeTranscode(e.target.checked)}
+            disabled={running}
+          />
+          Convert to MP3 (car)
+        </label>
       </div>
 
       {detail && detail.riskTracks > 0 && (
-        <div className="profile-warn">
-          ⚠ {fmtInt(detail.riskTracks)} track{detail.riskTracks === 1 ? '' : 's'} are lossless/FLAC and may
-          not play on car stereos or basic players. They'll be copied as-is.
+        <div className={'profile-warn' + (transcode ? ' ok' : '')}>
+          {transcode
+            ? `♪ ${fmtInt(detail.riskTracks)} lossless/FLAC track${detail.riskTracks === 1 ? '' : 's'} will be converted to MP3 320k on sync (slower, but car-ready).`
+            : `⚠ ${fmtInt(detail.riskTracks)} track${detail.riskTracks === 1 ? '' : 's'} are lossless/FLAC and may not play on car stereos. Copied as-is — tick "Convert to MP3" to fix.`}
         </div>
       )}
 
@@ -266,7 +282,9 @@ function ProfileCard({
         </button>
         {sync && sync.state === 'done' && sync.result && (
           <span className="ok-text">
-            ✓ copied {fmtInt(sync.result.copied)} · skipped {fmtInt(sync.result.skipped)}
+            ✓ {fmtInt(sync.result.copied)} synced
+            {sync.result.transcoded ? ` (${fmtInt(sync.result.transcoded)} converted to MP3)` : ''} · skipped{' '}
+            {fmtInt(sync.result.skipped)}
             {sync.result.failed ? ` · ${sync.result.failed} failed` : ''} ({fmtBytes(sync.result.bytes)})
           </span>
         )}
@@ -276,7 +294,10 @@ function ProfileCard({
       {running && (
         <div>
           <div className="sb-line">
-            <span className="spinner-sm" /> copying {fmtInt(sync!.done)} / {fmtInt(sync!.total)} files
+            <span className="spinner-sm" /> {sync!.phase || 'syncing'} {fmtInt(sync!.done)} / {fmtInt(sync!.total)} files
+            <button className="btn ghost" style={{ marginLeft: 'auto' }} onClick={() => void api.cancelSync()}>
+              Cancel
+            </button>
           </div>
           {pct !== null && (
             <div className="sb-bar" style={{ marginTop: 8 }}>
