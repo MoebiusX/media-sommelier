@@ -5,7 +5,7 @@
 import type { MediaFileRecord } from '../types.js';
 import { walkToArray } from '../inventory/walk.js';
 import { readTags } from '../inventory/tags.js';
-import { stem } from '../text.js';
+import { stem, plausibleDurationMs } from '../text.js';
 
 export interface Track extends MediaFileRecord {
   artist?: string;
@@ -46,6 +46,10 @@ export async function scanLibrary(root: string, opts: ScanLibraryOptions = {}): 
   return pmap(records, opts.concurrency ?? 8, async (rec) => {
     const tags = await readTags(rec.path);
     opts.onProgress?.(++done, records.length);
-    return { ...rec, ...tags, title: tags.title || stem(rec.name) };
+    const track: Track = { ...rec, ...tags, title: tags.title || stem(rec.name) };
+    const okMs = plausibleDurationMs(track.durationMs, rec.sizeBytes);
+    if (okMs == null) delete track.durationMs;
+    else track.durationMs = okMs;
+    return track;
   });
 }

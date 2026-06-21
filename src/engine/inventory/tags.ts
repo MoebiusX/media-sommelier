@@ -22,7 +22,10 @@ export interface TagInfo {
 
 export async function readTags(path: string): Promise<TagInfo> {
   try {
-    const m = await parseFile(path, { duration: true });
+    // skipPostHeaders avoids the trailing ID3v1 parse that throws RangeError on some corrupt files
+    // (when ID3v2 metadata is already present). Paired with the entrypoint unhandledRejection guards,
+    // a single malformed file can never crash a scan.
+    const m = await parseFile(path, { duration: true, skipPostHeaders: true });
     const c = m.common;
     const f = m.format;
     return {

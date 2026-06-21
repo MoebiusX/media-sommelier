@@ -49,4 +49,4 @@ export { fingerprintFile, fpcalcPath, fpcalcAvailable } from './enrich/fpcalc.js
 export type { Fingerprint } from './enrich/fpcalc.js';
 export { AcoustIdClient, parseLookupResponse } from './enrich/acoustid.js';
 export type { AcoustIdResult, AcoustIdMatch } from './enrich/acoustid.js';
-export { humanBytes, normalize, titleKey } from './text.js';
+export { humanBytes, normalize, titleKey, plausibleDurationMs } from './text.js';

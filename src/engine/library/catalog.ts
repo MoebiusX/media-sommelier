@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { walkToArray } from '../inventory/walk.js';
 import { readTags } from '../inventory/tags.js';
 import type { TagInfo } from '../inventory/tags.js';
-import { stem } from '../text.js';
+import { stem, plausibleDurationMs } from '../text.js';
 import type { Track } from './scan.js';
 
 const VERSION = 1;
@@ -59,6 +59,14 @@ export async function scanLibraryCached(root: string, opts: CachedScanOptions = 
       } else {
         tags = await readTags(rec.path);
         scanned++;
+      }
+      // Drop physically-impossible durations (corrupt VBR / whole-CD .ape) so they don't poison totals.
+      // Done on the way out so even a stale cache written before this guard gets healed on read.
+      const okMs = plausibleDurationMs(tags.durationMs, rec.sizeBytes);
+      if (okMs !== tags.durationMs) {
+        tags = { ...tags };
+        if (okMs == null) delete tags.durationMs;
+        else tags.durationMs = okMs;
       }
       next[rec.path] = { size: rec.sizeBytes, mtime: rec.mtime, tags };
       tracks[i] = { ...rec, ...tags, title: tags.title || stem(rec.name) };

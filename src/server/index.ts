@@ -39,6 +39,13 @@ import {
   type Video,
 } from '../engine/index.js';
 
+// One corrupt media file must never take down the local server. music-metadata can throw from a floating
+// promise on malformed ID3v1/VBR headers — it escapes the per-file try/catch as an unhandled rejection.
+// Log and keep running so a single bad file can't crash a /api/library (or photos/videos) scan.
+process.on('unhandledRejection', (err) => {
+  console.error('[unhandledRejection]', err instanceof Error ? err.message : err);
+});
+
 const IMAGE_MIME: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', heic: 'image/heic', tiff: 'image/tiff' };
 
 const AUDIO_MIME: Record<string, string> = {

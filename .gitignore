@@ -25,6 +25,9 @@ cache/
 # vendored native binaries (fetched via tools/fetch-fpcalc; not committed)
 vendor/
 
+# local-only scratch tools (underscore-prefixed) — may reference a user's drive paths; never commit
+tools/_*
+
 # os / editor
 .DS_Store
 Thumbs.db

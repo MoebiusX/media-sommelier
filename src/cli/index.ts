@@ -35,6 +35,12 @@ import {
   type AlbumEnrichment,
 } from '../engine/index.js';
 
+// A single corrupt file must never abort a long scan. music-metadata can throw from a floating promise on
+// malformed ID3v1/VBR headers (escapes readTags' try/catch as an unhandled rejection). Log and continue.
+process.on('unhandledRejection', (err) => {
+  process.stderr.write(`[skipped malformed file] ${err instanceof Error ? err.message : String(err)}\n`);
+});
+
 interface Args {
   cmd: string;
   target: string;

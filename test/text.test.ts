@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalize, titleKey, stripDiscTokens, findYear, humanBytes, mediaTypeForExt, isLosslessExt, stem, extOf } from '../src/engine/text.js';
+import { normalize, titleKey, stripDiscTokens, findYear, humanBytes, mediaTypeForExt, isLosslessExt, stem, extOf, plausibleDurationMs } from '../src/engine/text.js';
 
 describe('normalize', () => {
   it('lowercases, strips diacritics + punctuation, collapses spaces', () => {
@@ -49,6 +49,29 @@ describe('humanBytes', () => {
     expect(humanBytes(1024)).toBe('1.0 KB');
     expect(humanBytes(1536)).toBe('1.5 KB');
     expect(humanBytes(1073741824)).toBe('1.0 GB');
+  });
+});
+
+describe('plausibleDurationMs', () => {
+  it('keeps a normal track (8 MB, 5 min → ~224 kbps)', () => {
+    expect(plausibleDurationMs(300_000, 8 * 1024 * 1024)).toBe(300_000);
+  });
+  it('keeps a legit long low-bitrate audiobook (57 MB, 2 h → ~66 kbps)', () => {
+    expect(plausibleDurationMs(7_200_000, 57 * 1024 * 1024)).toBe(7_200_000);
+  });
+  it('drops a whole-CD .ape claiming ~109,000 h from 335 MB (~0.007 kbps)', () => {
+    expect(plausibleDurationMs(109_390 * 3_600_000, 335 * 1024 * 1024)).toBeUndefined();
+  });
+  it('drops an audiobook VBR mp3 claiming ~197 h from 34 MB (~0.4 kbps)', () => {
+    expect(plausibleDurationMs(197 * 3_600_000, 34 * 1024 * 1024)).toBeUndefined();
+  });
+  it('returns undefined for missing/zero/negative duration', () => {
+    expect(plausibleDurationMs(undefined, 1000)).toBeUndefined();
+    expect(plausibleDurationMs(0, 1000)).toBeUndefined();
+    expect(plausibleDurationMs(-5, 1000)).toBeUndefined();
+  });
+  it('trusts the reader when size is unknown', () => {
+    expect(plausibleDurationMs(300_000, 0)).toBe(300_000);
   });
 });
 

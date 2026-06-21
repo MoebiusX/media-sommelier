@@ -86,3 +86,18 @@ export function humanBytes(b: number): string {
   }
   return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
 }
+
+/**
+ * Reject a track duration that implies a physically-impossible bitrate. Some real-world files make the
+ * tag reader report absurd lengths — whole-CD `.ape` images and audiobook VBR MP3s with broken Xing
+ * headers can claim hundreds or thousands of hours, which then poisons library-wide totals. Below ~4 kbps
+ * no real audio exists, so such a duration is treated as bogus and dropped (returns undefined). File size
+ * is the cross-check; it includes tag/container overhead, so the estimate is generous — we only drop the
+ * truly impossible, never a legit long low-bitrate file (a 2 h, 57 MB audiobook is ~66 kbps and kept).
+ */
+export function plausibleDurationMs(durationMs: number | undefined, sizeBytes: number): number | undefined {
+  if (durationMs == null || durationMs <= 0) return undefined;
+  if (!(sizeBytes > 0)) return durationMs; // no size to validate against — trust the reader
+  const impliedKbps = (sizeBytes * 8) / durationMs; // bytes*8 / ms === kbit/s
+  return impliedKbps < 4 ? undefined : durationMs;
+}
