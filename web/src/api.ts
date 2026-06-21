@@ -138,6 +138,31 @@ export interface SearchResults {
   tracks: Array<{ id: number; title: string; artistName: string | null; albumId: string | null; path: string; durationMs: number | null }>;
 }
 
+export interface DupTrack {
+  id: number;
+  album: string | null;
+  albumId: string | null;
+  path: string;
+  durationMs: number | null;
+  bitrateKbps: number | null;
+  lossless: boolean;
+  sizeBytes: number;
+  ext: string;
+  keeper: boolean;
+}
+export interface DupGroup {
+  title: string;
+  artist: string;
+  count: number;
+  wastedBytes: number;
+  tracks: DupTrack[];
+}
+export interface DuplicatesResult {
+  totalGroups: number;
+  wastedBytes: number;
+  groups: DupGroup[];
+}
+
 export interface ProfileSummary {
   id: number;
   name: string;
@@ -251,6 +276,7 @@ export const api = {
   overview: () => get<Overview>('/api/overview'),
   artists: () => get<ArtistSummary[]>('/api/artists'),
   search: (q: string) => get<SearchResults>(`/api/search?q=${encodeURIComponent(q)}`),
+  duplicates: () => get<DuplicatesResult>('/api/duplicates'),
   artist: (name: string) => get<ArtistDetail>(`/api/artist/${encodeURIComponent(name)}`),
   album: (id: string) => get<AlbumDetail>(`/api/album/${encodeURIComponent(id)}`),
   coverUrl: (albumId: string) => `/api/cover?albumId=${encodeURIComponent(albumId)}`,

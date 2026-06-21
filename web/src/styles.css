@@ -1343,6 +1343,116 @@ select.sb-input {
   flex: none;
 }
 
+/* ---------- Duplicate finder ---------- */
+.dup-headline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+.dup-headline .muted {
+  font-size: 12px;
+}
+.dup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 480px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 8px;
+}
+.dup-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.dup-group-head:hover {
+  background: var(--bg-hover);
+}
+.dup-chev {
+  color: var(--text-faint);
+  font-size: 11px;
+  width: 12px;
+  flex: none;
+}
+.dup-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
+}
+.dup-badges {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+.dup-files {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0 8px 30px;
+}
+.dup-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.dup-file.keep {
+  background: rgba(141, 224, 192, 0.06);
+}
+.dup-play {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  flex: none;
+}
+.dup-play:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+.badge.dim {
+  color: var(--text-faint);
+}
+.dup-fmt {
+  width: 92px;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.dup-size,
+.dup-dur {
+  width: 60px;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+.dup-path {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-faint);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
 /* ---------- Refresh metadata/cover panel ---------- */
 .refresh-panel {
   margin-top: 16px;

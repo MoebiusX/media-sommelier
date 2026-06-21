@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, fmtInt, fmtRuntime, type Overview } from './api';
 import { ErrorState, Loading } from './ui';
 import RefreshBatch from './RefreshBatch';
+import Duplicates from './Duplicates';
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -73,6 +74,7 @@ export default function OverviewPage({ onArtist }: { onArtist: (name: string) =>
       </p>
 
       <RefreshBatch />
+      <Duplicates />
 
       <div className="stat-grid">
         <StatCard label="Tracks" value={fmtInt(data.tracks)} />

@@ -1078,6 +1078,81 @@ function search(db: Database.Database, res: ServerResponse, q: string): void {
   json(res, 200, { artists: artistRows, albums: albumRows, tracks: trackRows });
 }
 
+/**
+ * GET /api/duplicates — likely-duplicate tracks (the app's reason for being: messy collections have
+ * the same song ripped many times). Groups by normalized title+artist within a ~10s duration bucket;
+ * recommends a keeper (lossless > bitrate > size). READ-ONLY — surfaces them; the user decides.
+ */
+function duplicates(db: Database.Database, res: ServerResponse): void {
+  const rows = db
+    .prepare(
+      `SELECT id, title, artistName, album, albumId, path, durationMs, bitrateKbps, lossless, sizeBytes FROM tracks`,
+    )
+    .all() as Array<{
+    id: number;
+    title: string;
+    artistName: string | null;
+    album: string | null;
+    albumId: string | null;
+    path: string;
+    durationMs: number | null;
+    bitrateKbps: number | null;
+    lossless: number;
+    sizeBytes: number;
+  }>;
+  const norm = (s: string | null): string =>
+    (s ?? '')
+      .toLowerCase()
+      .replace(/[[(].*$/, '') // drop "(live)", "[remaster]" tails
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  const byKey = new Map<string, typeof rows>();
+  for (const t of rows) {
+    const nt = norm(t.title);
+    const na = norm(t.artistName);
+    if (nt.length < 2 || !na) continue; // need a real title + a tagged artist to claim a duplicate
+    const bucket = t.durationMs ? Math.round(t.durationMs / 10000) : 'x'; // ~10s window separates live/edits
+    const key = `${nt}|${na}|${bucket}`;
+    const arr = byKey.get(key);
+    if (arr) arr.push(t);
+    else byKey.set(key, [t]);
+  }
+  let wastedBytes = 0;
+  const groups: Array<unknown> = [];
+  for (const ts of byKey.values()) {
+    if (ts.length < 2) continue;
+    ts.sort(
+      (a, b) =>
+        b.lossless - a.lossless ||
+        (b.bitrateKbps ?? 0) - (a.bitrateKbps ?? 0) ||
+        (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0),
+    );
+    const keeperId = ts[0]!.id;
+    const wasted = ts.slice(1).reduce((n, t) => n + (t.sizeBytes ?? 0), 0);
+    wastedBytes += wasted;
+    groups.push({
+      title: ts[0]!.title,
+      artist: ts[0]!.artistName,
+      count: ts.length,
+      wastedBytes: wasted,
+      tracks: ts.map((t) => ({
+        id: t.id,
+        album: t.album,
+        albumId: t.albumId,
+        path: t.path,
+        durationMs: t.durationMs,
+        bitrateKbps: t.bitrateKbps,
+        lossless: t.lossless === 1,
+        sizeBytes: t.sizeBytes,
+        ext: extLower(t.path),
+        keeper: t.id === keeperId,
+      })),
+    });
+  }
+  (groups as Array<{ wastedBytes: number; count: number }>).sort((a, b) => b.wastedBytes - a.wastedBytes || b.count - a.count);
+  json(res, 200, { totalGroups: groups.length, wastedBytes, groups: groups.slice(0, 300) });
+}
+
 /** GET /api/artists — every artist with track & album counts, busiest first. */
 function artists(db: Database.Database, res: ServerResponse): void {
   const rows = db
@@ -1525,6 +1600,7 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
   if (path === '/api/overview') return overview(db, res);
   if (path === '/api/artists') return artists(db, res);
   if (path === '/api/search') return search(db, res, url.searchParams.get('q') ?? '');
+  if (path === '/api/duplicates') return duplicates(db, res);
   if (path === '/api/cover') return cover(db, res, url.searchParams);
   if (path === '/api/audio') return serveAudio(db, req, res, url.searchParams);
 
