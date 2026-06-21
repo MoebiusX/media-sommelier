@@ -667,6 +667,97 @@ async function applyRefresh(
   }
 }
 
+/* ---- batch refresh: sweep the library, propose covers/metadata, the user reviews then applies ---- */
+interface RefreshProposal {
+  albumId: string;
+  artistName: string;
+  title: string;
+  year: number | null;
+  match: { album: string; year?: number; score: number; mbid: string };
+  coverFetched: boolean;
+}
+interface RefreshBatchJob {
+  state: 'idle' | 'running' | 'done' | 'error';
+  phase: string;
+  done: number;
+  total: number;
+  proposals: RefreshProposal[];
+  error?: string;
+  startedAt?: number;
+  finishedAt?: number;
+}
+let refreshJob: RefreshBatchJob = { state: 'idle', phase: '', done: 0, total: 0, proposals: [] };
+let refreshCancel = false;
+
+/** Start a background sweep proposing online matches. `onlyMissing` targets albums without folder art. */
+function startRefreshBatch(db: Database.Database, opts: { onlyMissing: boolean; limit?: number }): { ok: boolean; error?: string } {
+  if (refreshJob.state === 'running') return { ok: false, error: 'refresh_in_progress' };
+  const noOverride = `a.id NOT IN (SELECT albumId FROM album_overrides)`;
+  const where = opts.onlyMissing ? `WHERE ${noOverride} AND (a.coverPath IS NULL OR a.coverPath = '')` : `WHERE ${noOverride}`;
+  let rows = db
+    .prepare(`SELECT a.id, a.artistName, a.title, a.year, a.trackCount FROM albums a ${where} ORDER BY a.trackCount DESC`)
+    .all() as Array<{ id: string; artistName: string; title: string; year: number | null; trackCount: number }>;
+  if (opts.limit && opts.limit > 0) rows = rows.slice(0, opts.limit);
+  refreshCancel = false;
+  refreshJob = { state: 'running', phase: 'looking up releases', done: 0, total: rows.length, proposals: [], startedAt: Date.now() };
+  void (async () => {
+    try {
+      for (const a of rows) {
+        if (refreshCancel) break;
+        const match = await lookupAlbum({ artistName: a.artistName, title: a.title, trackCount: a.trackCount });
+        if (match) {
+          let coverFetched = false;
+          const cover = await fetchFrontCover(match);
+          if (cover) {
+            await mkdir(COVER_DIR, { recursive: true });
+            await writeFile(pendingCoverPath(a.id), cover);
+            coverFetched = true;
+          }
+          // Only propose if there's something to gain: a cover or a year we don't have.
+          if (coverFetched || (match.year != null && match.year !== a.year)) {
+            refreshJob.proposals.push({
+              albumId: a.id,
+              artistName: a.artistName,
+              title: a.title,
+              year: a.year,
+              match: { album: match.album, ...(match.year != null ? { year: match.year } : {}), score: match.score, mbid: match.mbid },
+              coverFetched,
+            });
+          }
+        }
+        refreshJob.done++;
+      }
+      refreshJob = { ...refreshJob, state: 'done', phase: refreshCancel ? 'cancelled' : 'done', finishedAt: Date.now() };
+    } catch (e) {
+      refreshJob = { ...refreshJob, state: 'error', error: e instanceof Error ? e.message : String(e), finishedAt: Date.now() };
+    }
+  })();
+  return { ok: true };
+}
+
+/** Apply the user-selected subset of batch proposals; discard the staged covers of the rest. */
+async function applyBatch(
+  db: Database.Database,
+  items: Array<{ albumId: string; title?: string; year?: number; cover?: boolean; mbid?: string }>,
+): Promise<number> {
+  const keep = new Set(items.map((i) => i.albumId));
+  for (const it of items) {
+    await applyRefresh(db, it.albumId, {
+      ...(it.title != null ? { title: it.title } : {}),
+      ...(it.year != null ? { year: it.year } : {}),
+      cover: !!it.cover,
+      ...(it.mbid != null ? { mbid: it.mbid } : {}),
+    });
+  }
+  for (const p of refreshJob.proposals) {
+    if (!keep.has(p.albumId)) {
+      const pp = pendingCoverPath(p.albumId);
+      if (existsSync(pp)) await unlink(pp).catch(() => {});
+    }
+  }
+  return items.length;
+}
+
 /**
  * Start the organize copy (the payoff). Spawns the reorg as a CHILD PROCESS of this server so the long
  * file copy runs isolated (killable, non-blocking) and streams progress back over stdout. Originals are
@@ -1184,6 +1275,42 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     const p = pendingCoverPath(String(b.albumId ?? ''));
     if (existsSync(p)) await unlink(p).catch(() => {});
     return json(res, 200, { ok: true });
+  }
+
+  // ---- batch refresh (library sweep → review queue) ----
+  if (path === '/api/refresh/start' && method === 'POST') {
+    const b = await readBody(req);
+    const r = startRefreshBatch(db, {
+      onlyMissing: b.onlyMissing !== false,
+      ...(b.limit ? { limit: Number(b.limit) } : {}),
+    });
+    return json(res, r.ok ? 202 : 409, { ...r, job: refreshJob });
+  }
+  if (path === '/api/refresh/status') return json(res, 200, refreshJob);
+  if (path === '/api/refresh/candidates') {
+    const noOverride = `id NOT IN (SELECT albumId FROM album_overrides)`;
+    const missing = (db.prepare(`SELECT COUNT(*) c FROM albums WHERE ${noOverride} AND (coverPath IS NULL OR coverPath = '')`).get() as { c: number }).c;
+    const total = (db.prepare('SELECT COUNT(*) c FROM albums').get() as { c: number }).c;
+    return json(res, 200, { missing, total });
+  }
+  if (path === '/api/refresh/cancel' && method === 'POST') {
+    refreshCancel = true;
+    return json(res, 200, { ok: true });
+  }
+  if (path === '/api/refresh/apply-batch' && method === 'POST') {
+    const b = await readBody(req);
+    const items = Array.isArray(b.items) ? (b.items as Array<Record<string, unknown>>) : [];
+    const applied = await applyBatch(
+      db,
+      items.map((it) => ({
+        albumId: String(it.albumId),
+        ...(it.title != null ? { title: String(it.title) } : {}),
+        ...(it.year != null ? { year: Number(it.year) } : {}),
+        cover: !!it.cover,
+        ...(it.mbid != null ? { mbid: String(it.mbid) } : {}),
+      })),
+    );
+    return json(res, 200, { ok: true, applied });
   }
 
   // ---- read endpoints ----

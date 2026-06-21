@@ -190,6 +190,24 @@ export interface RefreshPreview {
   coverFetched: boolean;
 }
 
+export interface RefreshProposal {
+  albumId: string;
+  artistName: string;
+  title: string;
+  year: number | null;
+  match: { album: string; year?: number; score: number; mbid: string };
+  coverFetched: boolean;
+}
+
+export interface RefreshBatchJob {
+  state: 'idle' | 'running' | 'done' | 'error';
+  phase: string;
+  done: number;
+  total: number;
+  proposals: RefreshProposal[];
+  error?: string;
+}
+
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) {
@@ -265,6 +283,13 @@ export const api = {
   cancelRefresh: (albumId: string) => post<{ ok: boolean }>('/api/album/refresh/cancel', { albumId }),
   pendingCoverUrl: (albumId: string) =>
     `/api/album/refresh/cover?albumId=${encodeURIComponent(albumId)}&pending=1`,
+  refreshCandidates: () => get<{ missing: number; total: number }>('/api/refresh/candidates'),
+  startRefreshBatch: (b: { onlyMissing?: boolean; limit?: number }) =>
+    post<{ ok: boolean; error?: string; job: RefreshBatchJob }>('/api/refresh/start', b),
+  refreshBatchStatus: () => get<RefreshBatchJob>('/api/refresh/status'),
+  cancelRefreshBatch: () => post<{ ok: boolean }>('/api/refresh/cancel', {}),
+  applyRefreshBatch: (items: Array<{ albumId: string; title?: string; year?: number; cover?: boolean; mbid?: string }>) =>
+    post<{ ok: boolean; applied: number }>('/api/refresh/apply-batch', { items }),
 };
 
 // ---- formatting helpers ----

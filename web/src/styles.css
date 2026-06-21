@@ -1059,6 +1059,98 @@ select.sb-input {
   padding-top: 11px;
 }
 
+/* ---------- Batch cover/metadata refresh (Overview) ---------- */
+.rb-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13.5px;
+}
+.rb-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.rb-review-actions {
+  display: flex;
+  gap: 10px;
+}
+.rb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 460px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 8px;
+}
+.rb-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.rb-row:hover {
+  background: var(--bg-hover);
+}
+.rb-row.on {
+  background: var(--accent-soft);
+}
+.rb-row input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  flex: none;
+}
+.rb-cover {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--bg-elev-2);
+}
+.rb-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.rb-nocover {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  font-size: 18px;
+}
+.rb-main {
+  flex: 1;
+  min-width: 0;
+}
+.rb-title {
+  font-size: 13.5px;
+  font-weight: 520;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rb-sub {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.rb-tags {
+  display: flex;
+  gap: 5px;
+  flex: none;
+}
+
 /* ---------- Refresh metadata/cover panel ---------- */
 .refresh-panel {
   margin-top: 16px;
