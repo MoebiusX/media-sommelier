@@ -37,6 +37,9 @@ interface PlayerApi {
   prev: () => void;
   seek: (sec: number) => void;
   setVolume: (v: number) => void;
+  repeat: boolean;
+  toggleRepeat: () => void;
+  shuffle: () => void;
 }
 
 const Ctx = createContext<PlayerApi | null>(null);
@@ -60,11 +63,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVol] = useState(1);
+  const [repeat, setRepeat] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // queue length mirror so event handlers (onEnded) see the latest without stale closures
+  // mirrors so event handlers (onEnded, keydown) see the latest without stale closures
   const queueLenRef = useRef(0);
   queueLenRef.current = queue.length;
+  const queueRef = useRef<PlayerTrack[]>([]);
+  queueRef.current = queue;
+  const indexRef = useRef(-1);
+  indexRef.current = index;
+  const repeatRef = useRef(false);
+  repeatRef.current = repeat;
 
   const current = index >= 0 && index < queue.length ? queue[index]! : null;
 
@@ -77,6 +87,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const next = useCallback(() => setIndex((i) => Math.min(i + 1, queueLenRef.current - 1)), []);
   const prev = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), []);
+  const toggleRepeat = useCallback(() => setRepeat((r) => !r), []);
+  /** Fisher-Yates shuffle the queue, keeping the current track playing at its new position. */
+  const shuffle = useCallback(() => {
+    const q = queueRef.current;
+    if (q.length < 2) return;
+    const curPath = q[indexRef.current]?.path;
+    const arr = [...q];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+    }
+    const ni = arr.findIndex((t) => t.path === curPath);
+    setQueue(arr);
+    setIndex(ni >= 0 ? ni : 0);
+  }, []);
 
   const toggle = useCallback(() => {
     const a = audioRef.current;
@@ -112,10 +137,42 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const onEnded = useCallback(() => {
     setIndex((i) => {
       if (i + 1 < queueLenRef.current) return i + 1;
+      if (repeatRef.current && queueLenRef.current > 0) return 0; // repeat all → loop to start
       setIsPlaying(false);
       return i;
     });
   }, []);
+
+  // Global keyboard transport: Space play/pause, ←/→ seek ±5s, Shift+←/→ prev/next.
+  // Ignored while typing in a field or with the command palette open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const a = audioRef.current;
+      if (!a || index < 0) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (document.querySelector('.cp-backdrop')) return; // palette/modal open
+      if (e.key === ' ') {
+        e.preventDefault();
+        if (a.paused) void a.play().catch(() => {});
+        else a.pause();
+      } else if (e.key === 'ArrowRight' && e.shiftKey) {
+        e.preventDefault();
+        setIndex((i) => Math.min(i + 1, queueLenRef.current - 1));
+      } else if (e.key === 'ArrowLeft' && e.shiftKey) {
+        e.preventDefault();
+        setIndex((i) => Math.max(i - 1, 0));
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        a.currentTime = Math.min(a.currentTime + 5, a.duration || a.currentTime + 5);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        a.currentTime = Math.max(a.currentTime - 5, 0);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [index]);
 
   const value = useMemo<PlayerApi>(
     () => ({
@@ -133,8 +190,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       prev,
       seek,
       setVolume,
+      repeat,
+      toggleRepeat,
+      shuffle,
     }),
-    [queue, index, current, isPlaying, currentTime, duration, volume, error, playQueue, toggle, next, prev, seek, setVolume],
+    [queue, index, current, isPlaying, currentTime, duration, volume, error, playQueue, toggle, next, prev, seek, setVolume, repeat, toggleRepeat, shuffle],
   );
 
   return (

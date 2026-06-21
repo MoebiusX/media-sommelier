@@ -40,6 +40,18 @@ const Vol = () => (
     <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a8 8 0 0 1 0 12" />
   </svg>
 );
+const Shuffle = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+  </svg>
+);
+const Repeat = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M17 2l4 4-4 4" />
+    <path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4" />
+    <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+  </svg>
+);
 const QueueIco = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d="M4 6h11M4 12h11M4 18h7" />
@@ -87,6 +99,15 @@ export default function PlayerBar({
 
       <div className="player-center">
         <div className="player-ctrls">
+          <button
+            className="pbtn small"
+            onClick={p.shuffle}
+            disabled={p.queue.length < 2}
+            aria-label="Shuffle"
+            title="Shuffle queue"
+          >
+            <Shuffle />
+          </button>
           <button className="pbtn" onClick={p.prev} disabled={p.index <= 0} aria-label="Previous">
             <Prev />
           </button>
@@ -100,6 +121,14 @@ export default function PlayerBar({
             aria-label="Next"
           >
             <Next />
+          </button>
+          <button
+            className={'pbtn small' + (p.repeat ? ' on' : '')}
+            onClick={p.toggleRepeat}
+            aria-label="Repeat"
+            title={p.repeat ? 'Repeat: on' : 'Repeat: off'}
+          >
+            <Repeat />
           </button>
         </div>
         <div className="player-seek">
