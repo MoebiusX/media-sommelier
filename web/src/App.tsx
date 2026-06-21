@@ -1,23 +1,32 @@
 import { useEffect, useState } from 'react';
+import { api } from './api';
+import OverviewPage from './Overview';
+import Library, { type LibraryView } from './Library';
+import { Icon } from './ui';
 
-type Health = { ok: boolean; service?: string; db?: string } | null;
-
-const NAV = ['Library', 'Albums', 'Artists', 'Review'] as const;
-type Section = (typeof NAV)[number];
+type Tab = 'overview' | 'library';
 
 export default function App() {
-  const [active, setActive] = useState<Section>('Library');
-  const [health, setHealth] = useState<Health>(null);
-  const [healthError, setHealthError] = useState(false);
+  const [tab, setTab] = useState<Tab>('overview');
+  const [libView, setLibView] = useState<LibraryView>({ kind: 'artists' });
+  const [apiUp, setApiUp] = useState<boolean | null>(null);
 
   useEffect(() => {
-    fetch('/api/health')
-      .then((r) => r.json())
-      .then((j) => setHealth(j))
-      .catch(() => setHealthError(true));
+    api
+      .health()
+      .then((h) => setApiUp(!!h.ok))
+      .catch(() => setApiUp(false));
   }, []);
 
-  const apiUp = !!health?.ok && !healthError;
+  function gotoArtist(name: string) {
+    setLibView({ kind: 'artist', name });
+    setTab('library');
+  }
+
+  function navLibrary(v: LibraryView) {
+    setLibView(v);
+    setTab('library');
+  }
 
   return (
     <div className="app">
@@ -30,40 +39,40 @@ export default function App() {
           </div>
         </div>
 
-        {NAV.map((item) => (
-          <div
-            key={item}
-            className={'nav-item' + (active === item ? ' active' : '')}
-            onClick={() => setActive(item)}
-          >
-            {item}
-          </div>
-        ))}
+        <div
+          className={'nav-item' + (tab === 'overview' ? ' active' : '')}
+          onClick={() => setTab('overview')}
+        >
+          <Icon name="overview" className="nav-ico" />
+          Overview
+        </div>
+        <div
+          className={'nav-item' + (tab === 'library' ? ' active' : '')}
+          onClick={() => {
+            setTab('library');
+            setLibView({ kind: 'artists' });
+          }}
+        >
+          <Icon name="library" className="nav-ico" />
+          Library
+        </div>
 
         <div className="sidebar-spacer" />
         <div className="sidebar-foot">
           <span className="pill">
-            <span className={'dot ' + (apiUp ? 'ok' : healthError ? 'down' : '')} />
-            {apiUp ? 'API connected' : healthError ? 'API offline' : 'connecting…'}
+            <span className={'dot ' + (apiUp ? 'ok' : apiUp === false ? 'down' : '')} />
+            {apiUp ? 'API connected' : apiUp === false ? 'API offline' : 'connecting…'}
           </span>
         </div>
       </aside>
 
       <main className="main">
-        <div className="topbar">
-          <h1>{active}</h1>
-        </div>
-        <div className="content">
-          <div className="placeholder">
-            <h2>{active}</h2>
-            <p>
-              This view is a placeholder. The app skeleton is wired up and the
-              engine-backed API is {apiUp ? 'live' : 'not yet reachable'}.
-            </p>
-            {health?.db && (
-              <p className="brand-sub">database: {health.db}</p>
-            )}
-          </div>
+        <div className="main-inner">
+          {tab === 'overview' ? (
+            <OverviewPage onArtist={gotoArtist} />
+          ) : (
+            <Library view={libView} navigate={navLibrary} />
+          )}
         </div>
       </main>
     </div>

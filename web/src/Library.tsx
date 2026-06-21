@@ -1,0 +1,327 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+  api,
+  fmtDuration,
+  fmtInt,
+  type AlbumDetail,
+  type AlbumSummary,
+  type ArtistDetail,
+  type ArtistSummary,
+} from './api';
+import { Cover, ErrorState, FlagBadges, Icon, Loading } from './ui';
+
+/** Library coordinates which sub-view is shown via lightweight local state. */
+export type LibraryView =
+  | { kind: 'artists' }
+  | { kind: 'artist'; name: string }
+  | { kind: 'album'; id: string; artistName?: string };
+
+export default function Library({
+  view,
+  navigate,
+}: {
+  view: LibraryView;
+  navigate: (v: LibraryView) => void;
+}) {
+  if (view.kind === 'artists') return <ArtistsList navigate={navigate} />;
+  if (view.kind === 'artist') return <ArtistPage name={view.name} navigate={navigate} />;
+  return <AlbumPage id={view.id} fallbackArtist={view.artistName} navigate={navigate} />;
+}
+
+/* ---------------- Artists list ---------------- */
+function avatarFor(name: string) {
+  return name.replace(/^the\s+/i, '').trim().slice(0, 1).toUpperCase() || '?';
+}
+
+function ArtistsList({ navigate }: { navigate: (v: LibraryView) => void }) {
+  const [artists, setArtists] = useState<ArtistSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .artists()
+      .then((d) => alive && setArtists(d))
+      .catch((e) => alive && setError(String(e.message ?? e)));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!artists) return [];
+    const needle = q.trim().toLowerCase();
+    if (!needle) return artists;
+    return artists.filter((a) => a.name.toLowerCase().includes(needle));
+  }, [artists, q]);
+
+  if (error) return <ErrorState message={error} />;
+
+  return (
+    <>
+      <h1 className="page-title">Library</h1>
+      <p className="page-lede">
+        {artists ? `${fmtInt(artists.length)} artists` : 'Your collection'} — pick an artist to see their
+        reconstructed albums.
+      </p>
+      <input
+        className="search"
+        placeholder="Search artists…"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+      {!artists ? (
+        <Loading label="Loading artists…" />
+      ) : filtered.length === 0 ? (
+        <div className="empty">No artists match “{q}”.</div>
+      ) : (
+        <div className="panel" style={{ padding: 8 }}>
+          <div className="list">
+            {filtered.slice(0, 600).map((a) => (
+              <div
+                key={a.name}
+                className="row"
+                onClick={() => navigate({ kind: 'artist', name: a.name })}
+              >
+                <div className="avatar">{avatarFor(a.name)}</div>
+                <div className="row-main">
+                  <div className="row-title">{a.name}</div>
+                  <div className="row-sub">
+                    {fmtInt(a.trackCount)} tracks
+                    {a.albumCount > 0
+                      ? ` · ${fmtInt(a.albumCount)} album${a.albumCount === 1 ? '' : 's'}`
+                      : ' · orphan tracks only'}
+                  </div>
+                </div>
+                <Icon name="chevron" className="chev" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ---------------- Artist page (album grid) ---------------- */
+function AlbumCard({
+  album,
+  artistName,
+  navigate,
+}: {
+  album: AlbumSummary;
+  artistName: string;
+  navigate: (v: LibraryView) => void;
+}) {
+  return (
+    <div className="album-card" onClick={() => navigate({ kind: 'album', id: album.id, artistName })}>
+      <Cover albumId={album.id} title={album.title} />
+      <div className="album-meta">
+        <div className="album-name" title={album.title}>
+          {album.title}
+        </div>
+        <div className="album-line">
+          <span>{album.year ?? '—'}</span>
+          <span>·</span>
+          <span>{fmtInt(album.trackCount)} tracks</span>
+        </div>
+        <FlagBadges flags={album.flags} lossless={album.lossless} discCount={album.discCount} />
+      </div>
+    </div>
+  );
+}
+
+function ArtistPage({ name, navigate }: { name: string; navigate: (v: LibraryView) => void }) {
+  const [data, setData] = useState<ArtistDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setData(null);
+    setError(null);
+    api
+      .artist(name)
+      .then((d) => alive && setData(d))
+      .catch((e) => alive && setError(String(e.message ?? e)));
+    return () => {
+      alive = false;
+    };
+  }, [name]);
+
+  return (
+    <>
+      <div className="breadcrumb">
+        <span className="crumb" onClick={() => navigate({ kind: 'artists' })}>
+          Library
+        </span>
+        <span className="sep">/</span>
+        <span className="here">{name}</span>
+      </div>
+
+      {error ? (
+        <ErrorState message={error} />
+      ) : !data ? (
+        <Loading label={`Loading ${name}…`} />
+      ) : (
+        <>
+          <h1 className="page-title">{data.name}</h1>
+          <p className="page-lede">
+            {fmtInt(data.trackCount)} tracks ·{' '}
+            {data.albumCount > 0
+              ? `${fmtInt(data.albumCount)} reconstructed album${data.albumCount === 1 ? '' : 's'}`
+              : 'no whole albums — tracks remain orphaned'}
+          </p>
+          {data.albums.length === 0 ? (
+            <div className="empty">
+              No reconstructed albums for this artist. Their tracks did not group into a confident folder
+              album.
+            </div>
+          ) : (
+            <div className="album-grid">
+              {data.albums.map((al) => (
+                <AlbumCard key={al.id} album={al} artistName={data.name} navigate={navigate} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+/* ---------------- Album page (tracks) ---------------- */
+function AlbumPage({
+  id,
+  fallbackArtist,
+  navigate,
+}: {
+  id: string;
+  fallbackArtist?: string;
+  navigate: (v: LibraryView) => void;
+}) {
+  const [data, setData] = useState<AlbumDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setData(null);
+    setError(null);
+    api
+      .album(id)
+      .then((d) => alive && setData(d))
+      .catch((e) => alive && setError(String(e.message ?? e)));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  const artistName = data?.artistName ?? fallbackArtist;
+
+  const groupedByDisc = useMemo(() => {
+    if (!data) return [];
+    const map = new Map<number, AlbumDetail['tracks']>();
+    for (const t of data.tracks) {
+      const d = t.discNo ?? 1;
+      if (!map.has(d)) map.set(d, []);
+      map.get(d)!.push(t);
+    }
+    return [...map.entries()].sort((a, b) => a[0] - b[0]);
+  }, [data]);
+
+  const showDiscs = (data?.discCount ?? 1) > 1 && groupedByDisc.length > 1;
+
+  return (
+    <>
+      <div className="breadcrumb">
+        <span className="crumb" onClick={() => navigate({ kind: 'artists' })}>
+          Library
+        </span>
+        <span className="sep">/</span>
+        {artistName ? (
+          <>
+            <span className="crumb" onClick={() => navigate({ kind: 'artist', name: artistName })}>
+              {artistName}
+            </span>
+            <span className="sep">/</span>
+          </>
+        ) : null}
+        <span className="here">{data?.title ?? 'Album'}</span>
+      </div>
+
+      {error ? (
+        <ErrorState message={error} />
+      ) : !data ? (
+        <Loading label="Loading album…" />
+      ) : (
+        <>
+          <div className="album-head">
+            <div style={{ width: 180, flex: 'none' }}>
+              <Cover albumId={data.id} title={data.title} />
+            </div>
+            <div className="album-head-info">
+              <h1>{data.title}</h1>
+              <div className="by">
+                by{' '}
+                <span
+                  className="link"
+                  onClick={() =>
+                    artistName && navigate({ kind: 'artist', name: artistName })
+                  }
+                >
+                  {data.artistName}
+                </span>
+              </div>
+              <div className="facts">
+                {data.year && (
+                  <>
+                    <span>{data.year}</span>
+                    <span className="dotsep">·</span>
+                  </>
+                )}
+                <span>{fmtInt(data.tracks.length)} tracks</span>
+                <span className="dotsep">·</span>
+                <span>{Math.round(data.sizeBytes / 1_048_576).toLocaleString()} MB</span>
+                <span className="dotsep">·</span>
+                <span>{Math.round(data.confidence * 100)}% confidence</span>
+              </div>
+              <FlagBadges flags={data.flags} lossless={data.lossless} discCount={data.discCount} />
+              {data.evidence.length > 0 && (
+                <ul className="evidence">
+                  {data.evidence.map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="tracks">
+            {groupedByDisc.map(([disc, tracks]) => (
+              <div key={disc}>
+                {showDiscs && <div className="disc-head">Disc {disc}</div>}
+                {tracks.map((t) => (
+                  <div className="trk" key={t.id}>
+                    <div className="no">{t.trackNo ?? '–'}</div>
+                    <div>
+                      <div className="tt" title={t.title}>
+                        {t.title}
+                      </div>
+                      {t.artistName && t.artistName !== data.artistName && (
+                        <div className="tsub">{t.artistName}</div>
+                      )}
+                    </div>
+                    <div className="meta">
+                      {t.lossless ? 'FLAC' : t.bitrateKbps ? `${t.bitrateKbps} kbps` : ''}
+                    </div>
+                    <div className="meta">{fmtDuration(t.durationMs)}</div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
