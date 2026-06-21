@@ -1031,6 +1031,53 @@ function overview(db: Database.Database, res: ServerResponse): void {
   });
 }
 
+/**
+ * GET /api/search?q= — ranked search across artists, albums and tracks. Every whitespace token must
+ * match (AND), prefix matches rank first. Cheap LIKE scan (fast at ~10K rows); upgrade to FTS5 if needed.
+ */
+function search(db: Database.Database, res: ServerResponse, q: string): void {
+  const trimmed = q.trim();
+  if (trimmed.length < 1) {
+    json(res, 200, { artists: [], albums: [], tracks: [] });
+    return;
+  }
+  const esc = (s: string): string => s.replace(/[%_\\]/g, (c) => '\\' + c);
+  const tokens = trimmed.split(/\s+/).slice(0, 6);
+  const pat = tokens.map((t) => `%${esc(t)}%`); // one %token% per token
+  const prefix = `${esc(trimmed)}%`;
+  /** WHERE clause: every token must appear in at least one of `cols`. */
+  const whereAllTokensIn = (cols: string[]): string =>
+    tokens.map(() => '(' + cols.map((c) => `${c} LIKE ? ESCAPE '\\'`).join(' OR ') + ')').join(' AND ');
+  /** Bind params for whereAllTokensIn: each token repeated once per column. */
+  const paramsFor = (nCols: number): string[] => tokens.flatMap((_, i) => Array(nCols).fill(pat[i]));
+
+  const artistRows = db
+    .prepare(
+      `SELECT name, trackCount, albumCount FROM artists
+       WHERE ${whereAllTokensIn(['name'])}
+       ORDER BY (name LIKE ? ESCAPE '\\') DESC, trackCount DESC LIMIT 6`,
+    )
+    .all(...paramsFor(1), prefix);
+
+  const albumRows = db
+    .prepare(
+      `SELECT id, title, artistName, year, trackCount FROM albums
+       WHERE ${whereAllTokensIn(['title', 'artistName'])}
+       ORDER BY (title LIKE ? ESCAPE '\\') DESC, trackCount DESC LIMIT 6`,
+    )
+    .all(...paramsFor(2), prefix);
+
+  const trackRows = db
+    .prepare(
+      `SELECT id, title, artistName, albumId, path, durationMs FROM tracks
+       WHERE ${whereAllTokensIn(['title'])}
+       ORDER BY (title LIKE ? ESCAPE '\\') DESC, title ASC LIMIT 8`,
+    )
+    .all(...paramsFor(1), prefix);
+
+  json(res, 200, { artists: artistRows, albums: albumRows, tracks: trackRows });
+}
+
 /** GET /api/artists — every artist with track & album counts, busiest first. */
 function artists(db: Database.Database, res: ServerResponse): void {
   const rows = db
@@ -1477,6 +1524,7 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
   // ---- read endpoints ----
   if (path === '/api/overview') return overview(db, res);
   if (path === '/api/artists') return artists(db, res);
+  if (path === '/api/search') return search(db, res, url.searchParams.get('q') ?? '');
   if (path === '/api/cover') return cover(db, res, url.searchParams);
   if (path === '/api/audio') return serveAudio(db, req, res, url.searchParams);
 

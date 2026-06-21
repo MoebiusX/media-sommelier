@@ -132,6 +132,12 @@ export interface SimulateResult {
   recommended: string | null;
 }
 
+export interface SearchResults {
+  artists: Array<{ name: string; trackCount: number; albumCount: number }>;
+  albums: Array<{ id: string; title: string; artistName: string; year: number | null; trackCount: number }>;
+  tracks: Array<{ id: number; title: string; artistName: string | null; albumId: string | null; path: string; durationMs: number | null }>;
+}
+
 export interface ProfileSummary {
   id: number;
   name: string;
@@ -244,6 +250,7 @@ export const api = {
   health: () => get<{ ok: boolean; db?: string }>('/api/health'),
   overview: () => get<Overview>('/api/overview'),
   artists: () => get<ArtistSummary[]>('/api/artists'),
+  search: (q: string) => get<SearchResults>(`/api/search?q=${encodeURIComponent(q)}`),
   artist: (name: string) => get<ArtistDetail>(`/api/artist/${encodeURIComponent(name)}`),
   album: (id: string) => get<AlbumDetail>(`/api/album/${encodeURIComponent(id)}`),
   coverUrl: (albumId: string) => `/api/cover?albumId=${encodeURIComponent(albumId)}`,

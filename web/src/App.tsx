@@ -8,6 +8,7 @@ import SourceBar from './SourceBar';
 import { Icon } from './ui';
 import { PlayerProvider } from './player';
 import PlayerBar from './PlayerBar';
+import CommandPalette from './CommandPalette';
 
 type Tab = 'overview' | 'library' | 'organize' | 'sync';
 
@@ -19,7 +20,20 @@ export default function App() {
   const [scan, setScan] = useState<ScanStatus | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [running, setRunning] = useState<Array<{ type: string; phase: string; done: number; total: number }>>([]);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const polling = useRef(false);
+
+  // Global ⌘K / Ctrl-K to open the search command palette.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     api
@@ -118,6 +132,11 @@ export default function App() {
           </div>
         </div>
 
+        <button className="sidebar-search" onClick={() => setPaletteOpen(true)}>
+          <span>Search…</span>
+          <kbd>⌘K</kbd>
+        </button>
+
         {navItem('organize', 'organize', 'Organize')}
         {navItem('library', 'library', 'Library')}
         {navItem('sync', 'sync', 'Sync')}
@@ -182,6 +201,12 @@ export default function App() {
         </div>
       </main>
       <PlayerBar onOpenAlbum={(id, artistName) => navLibrary({ kind: 'album', id, artistName })} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onArtist={gotoArtist}
+        onAlbum={(id, artistName) => navLibrary({ kind: 'album', id, artistName })}
+      />
     </div>
     </PlayerProvider>
   );
