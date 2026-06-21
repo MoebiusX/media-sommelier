@@ -1,6 +1,7 @@
 // Fixed bottom transport bar. Renders only when something is loaded into the player.
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { usePlayer } from './player';
+import { fmtDuration } from './api';
 import { Cover } from './ui';
 
 function clock(sec: number): string {
@@ -39,15 +40,36 @@ const Vol = () => (
     <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a8 8 0 0 1 0 12" />
   </svg>
 );
+const QueueIco = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M4 6h11M4 12h11M4 18h7" />
+    <path d="M17 14v6l4-2.2z" fill="currentColor" stroke="none" />
+  </svg>
+);
 
-export default function PlayerBar() {
+export default function PlayerBar({
+  onOpenAlbum,
+}: {
+  onOpenAlbum?: (albumId: string, artistName: string) => void;
+}) {
   const p = usePlayer();
+  const [showQueue, setShowQueue] = useState(false);
   const cur = p.current;
   if (!cur) return null;
 
+  const canOpenAlbum = !!(cur.albumId && onOpenAlbum);
+  const openAlbum = () => {
+    if (cur.albumId && onOpenAlbum) onOpenAlbum(cur.albumId, cur.artistName);
+  };
+
   return (
     <div className="player">
-      <div className="player-np">
+      <div
+        className={'player-np' + (canOpenAlbum ? ' clickable' : '')}
+        onClick={canOpenAlbum ? openAlbum : undefined}
+        title={canOpenAlbum ? 'Open album' : undefined}
+        role={canOpenAlbum ? 'button' : undefined}
+      >
         {cur.albumId ? (
           <div className="player-cover">
             <Cover albumId={cur.albumId} title={cur.albumTitle ?? cur.title} />
@@ -98,6 +120,14 @@ export default function PlayerBar() {
       </div>
 
       <div className="player-right">
+        <button
+          className={'pbtn qbtn' + (showQueue ? ' on' : '')}
+          onClick={() => setShowQueue((v) => !v)}
+          aria-label="Queue"
+          title="Queue"
+        >
+          <QueueIco />
+        </button>
         <Vol />
         <input
           className="range vol"
@@ -111,6 +141,52 @@ export default function PlayerBar() {
           aria-label="Volume"
         />
       </div>
+
+      {showQueue && (
+        <div className="queue-pop">
+          <div className="queue-head">
+            <span>
+              Queue <span className="muted">· {p.queue.length} tracks</span>
+            </span>
+            <button className="queue-x" onClick={() => setShowQueue(false)} aria-label="Close">
+              ✕
+            </button>
+          </div>
+          <div className="queue-list">
+            {p.queue.map((t, i) => {
+              const active = i === p.index;
+              return (
+                <div
+                  key={`${t.id}-${i}`}
+                  className={'queue-row' + (active ? ' active' : '')}
+                  onClick={() => (active ? p.toggle() : p.playQueue(p.queue, i))}
+                >
+                  <div className="q-no">
+                    {active ? (
+                      <span className={'eq' + (p.isPlaying ? ' on' : '')} aria-hidden>
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                    ) : (
+                      i + 1
+                    )}
+                  </div>
+                  <div className="q-main">
+                    <div className="q-title" title={t.title}>
+                      {t.title}
+                    </div>
+                    <div className="q-artist" title={t.artistName}>
+                      {t.artistName}
+                    </div>
+                  </div>
+                  <div className="q-dur">{fmtDuration(t.durationMs)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

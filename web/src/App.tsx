@@ -133,7 +133,7 @@ export default function App() {
           )}
         </div>
       </main>
-      <PlayerBar />
+      <PlayerBar onOpenAlbum={(id, artistName) => navLibrary({ kind: 'album', id, artistName })} />
     </div>
     </PlayerProvider>
   );
