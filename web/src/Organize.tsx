@@ -2,16 +2,19 @@ import { useEffect, useState } from 'react';
 import { api, type OrganizeStatus, type PlanSummary, type Preset } from './api';
 
 /**
- * The Organize control — the payoff. Pick a destination + naming scheme, Preview the plan (dry run),
- * then Organize (copy) which genuinely copies the reconstructed library into a NEW tree (originals are
- * never touched — the engine enforces dest-outside-source + collision-fail). When done, you can browse
- * the organized result by scanning the destination.
+ * The organizer — the whole point of the app. Pick the messy source folder + a destination + a naming
+ * scheme, optionally Preview the plan (dry run), then Organize: the server spawns a CHILD PROCESS that
+ * copies the reconstructed library into a clean new tree, streaming progress here. Originals are never
+ * modified (the engine refuses a destination inside the source and never overwrites). You can Cancel a
+ * run, and "Browse the result" indexes the output so you can see it.
  */
 export default function Organize({
   source,
+  setSource,
   onOpenResult,
 }: {
   source: string;
+  setSource: (s: string) => void;
   onOpenResult: (dest: string) => void;
 }) {
   const [dest, setDest] = useState<string>(() => localStorage.getItem('somm.dest') ?? 'D:\\Organized');
@@ -32,7 +35,13 @@ export default function Organize({
 
   const running = job?.state === 'running';
   const noSource = !source.trim();
+  const noDest = !dest.trim();
+  const pct = job && job.total > 0 ? Math.round((job.done / job.total) * 100) : null;
 
+  async function pickSource() {
+    const r = await api.pickFolder();
+    if (r.path) setSource(r.path);
+  }
   async function pickDest() {
     const r = await api.pickFolder();
     if (r.path) setDest(r.path);
@@ -57,41 +66,56 @@ export default function Organize({
     setPlan(null);
     try {
       await api.startOrganize({ source, dest, preset, writeTags });
-      setJob({ state: 'running', phase: 'planning', done: 0, total: 0 });
-      // poll until done/error
+      setJob({ state: 'running', phase: 'starting', done: 0, total: 0 });
       // eslint-disable-next-line no-constant-condition
       while (true) {
-        await new Promise((r) => setTimeout(r, 1200));
+        await new Promise((r) => setTimeout(r, 1000));
         const s = await api.organizeStatus();
         setJob(s);
-        if (s.state === 'done' || s.state === 'error') break;
+        if (s.state === 'done' || s.state === 'error' || s.state === 'cancelled') break;
       }
     } catch (e) {
       setErr(String((e as Error).message ?? e));
     }
   }
 
+  async function cancel() {
+    try {
+      await api.cancelOrganize();
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
     <>
-      <h1 className="page-title">Organize</h1>
+      <h1 className="page-title">Organize a music library</h1>
       <p className="page-lede">
-        Copy your library into a clean, reconstructed tree. Originals are never modified — this only ever
-        copies.
+        Point at a messy folder, choose where the clean copy goes, and run it. The reorg runs as a separate
+        process on this machine — your originals are never modified, only copied into a tidy new tree.
       </p>
 
-      {noSource && (
-        <div className="empty">Point at a source folder up top and Scan it first, then come back here.</div>
-      )}
-
       <div className="panel form">
-        <label className="field">
-          <span>Source</span>
-          <input value={source} readOnly className="sb-input" placeholder="(scan a folder first)" />
-        </label>
+        <div className="form-row">
+          <label className="field grow">
+            <span>Source — the messy music folder</span>
+            <input
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              className="sb-input"
+              placeholder="e.g.  Y:\   or   D:\Music\Unsorted"
+              disabled={running}
+              spellCheck={false}
+            />
+          </label>
+          <button className="btn ghost end" onClick={pickSource} disabled={running}>
+            Browse…
+          </button>
+        </div>
 
         <div className="form-row">
           <label className="field grow">
-            <span>Destination (a new, empty-ish folder outside the source)</span>
+            <span>Destination — a new folder, outside the source</span>
             <input
               value={dest}
               onChange={(e) => setDest(e.target.value)}
@@ -133,13 +157,19 @@ export default function Organize({
         </div>
 
         <div className="form-actions">
-          <button className="btn ghost" onClick={preview} disabled={planning || running || noSource}>
+          <button className="btn ghost" onClick={preview} disabled={planning || running || noSource || noDest}>
             {planning ? 'Planning…' : 'Preview plan'}
           </button>
-          <button className="btn primary" onClick={run} disabled={running || noSource}>
-            {running ? 'Organizing…' : 'Organize (copy)'}
-          </button>
-          <span className="hint">Preview is a safe dry run. Copy never modifies originals.</span>
+          {running ? (
+            <button className="btn danger" onClick={cancel}>
+              Cancel
+            </button>
+          ) : (
+            <button className="btn primary" onClick={run} disabled={noSource || noDest}>
+              Organize → copy
+            </button>
+          )}
+          <span className="hint">Preview is a safe dry run. Originals are never modified.</span>
         </div>
       </div>
 
@@ -173,9 +203,17 @@ export default function Organize({
       {job && (
         <div className="panel" style={{ marginTop: 16 }}>
           {job.state === 'running' && (
-            <div className="sb-line">
-              <span className="spinner-sm" /> {job.phase} — {job.done.toLocaleString()} /{' '}
-              {job.total.toLocaleString()} files copied
+            <div>
+              <div className="sb-line">
+                <span className="spinner-sm" /> {job.phase} — {job.done.toLocaleString()} /{' '}
+                {job.total.toLocaleString()} files
+                {job.pid ? <span className="muted"> · worker process #{job.pid}</span> : null}
+              </div>
+              {pct !== null && (
+                <div className="sb-bar" style={{ marginTop: 10 }}>
+                  <div className="sb-fill" style={{ width: `${pct}%` }} />
+                </div>
+              )}
             </div>
           )}
           {job.state === 'done' && job.result && (
@@ -198,11 +236,16 @@ export default function Organize({
                 <span className="dotsep">·</span>
                 <span>{Math.round(job.result.bytes / 1_048_576).toLocaleString()} MB</span>
               </div>
-              <button className="btn primary" style={{ marginTop: 14 }} onClick={() => onOpenResult(job.result!.dest)}>
+              <button
+                className="btn primary"
+                style={{ marginTop: 14 }}
+                onClick={() => onOpenResult(job.result!.dest)}
+              >
                 Browse the organized library →
               </button>
             </div>
           )}
+          {job.state === 'cancelled' && <div className="muted">Organize cancelled. Nothing further was copied.</div>}
           {job.state === 'error' && <div className="err-text">Organize failed: {job.error}</div>}
         </div>
       )}

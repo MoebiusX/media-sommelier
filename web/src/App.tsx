@@ -9,7 +9,7 @@ import { Icon } from './ui';
 type Tab = 'overview' | 'library' | 'organize';
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>('organize');
   const [libView, setLibView] = useState<LibraryView>({ kind: 'artists' });
   const [apiUp, setApiUp] = useState<boolean | null>(null);
   const [source, setSource] = useState<string>(() => localStorage.getItem('somm.source') ?? '');
@@ -97,9 +97,9 @@ export default function App() {
           </div>
         </div>
 
-        {navItem('overview', 'overview', 'Overview')}
-        {navItem('library', 'library', 'Library')}
         {navItem('organize', 'organize', 'Organize')}
+        {navItem('library', 'library', 'Library')}
+        {navItem('overview', 'overview', 'Overview')}
 
         <div className="sidebar-spacer" />
         <div className="sidebar-foot">
@@ -112,19 +112,21 @@ export default function App() {
 
       <main className="main">
         <div className="main-inner">
-          <SourceBar
-            source={source}
-            setSource={setSource}
-            scan={scan}
-            onScan={() => void doScan(source)}
-            onPick={() => void pickSource()}
-          />
-          {tab === 'overview' ? (
-            <OverviewPage key={refreshKey} onArtist={gotoArtist} />
+          {tab !== 'organize' && (
+            <SourceBar
+              source={source}
+              setSource={setSource}
+              scan={scan}
+              onScan={() => void doScan(source)}
+              onPick={() => void pickSource()}
+            />
+          )}
+          {tab === 'organize' ? (
+            <Organize source={source} setSource={setSource} onOpenResult={openFolder} />
           ) : tab === 'library' ? (
             <Library key={refreshKey} view={libView} navigate={navLibrary} />
           ) : (
-            <Organize source={source} onOpenResult={openFolder} />
+            <OverviewPage key={refreshKey} onArtist={gotoArtist} />
           )}
         </div>
       </main>

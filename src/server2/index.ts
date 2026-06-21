@@ -12,8 +12,9 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdirSync } from 'node:fs';
-import { dirname, resolve, sep } from 'node:path';
-import { execFile } from 'node:child_process';
+import { dirname, resolve, sep, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
 import {
@@ -21,7 +22,6 @@ import {
   walkToArray,
   reconstruct,
   planOrganize,
-  executePlan,
   ORGANIZE_PRESETS,
   type OrganizePlan,
 } from '../engine/index.js';
@@ -123,12 +123,13 @@ interface GroupingMeta {
 // them as a single in-flight job each, started by a POST and polled by the UI via GET /status.
 
 interface Job {
-  state: 'idle' | 'running' | 'done' | 'error';
+  state: 'idle' | 'running' | 'done' | 'error' | 'cancelled';
   source?: string;
   dest?: string;
   phase: string;
   done: number;
   total: number;
+  pid?: number;
   result?: unknown;
   error?: string;
   startedAt?: number;
@@ -137,6 +138,8 @@ interface Job {
 
 let scanJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
 let organizeJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
+let organizeChild: ChildProcess | null = null;
+const WORKER = join(dirname(fileURLToPath(import.meta.url)), 'organize-worker.ts');
 
 /** Start indexing a folder into SQLite (point-at-a-folder control). No-op if one is already running. */
 function startScan(source: string): void {
@@ -167,41 +170,93 @@ async function planFor(source: string, dest: string, presetKey: string): Promise
   });
 }
 
-/** Start the organize copy (the payoff control). Plans, then copies to a NEW tree; originals untouched. */
+/**
+ * Start the organize copy (the payoff). Spawns the reorg as a CHILD PROCESS of this server so the long
+ * file copy runs isolated (killable, non-blocking) and streams progress back over stdout. Originals are
+ * never touched — the worker uses executePlan with the dest-outside-source guard.
+ */
 function startOrganize(source: string, dest: string, presetKey: string, writeTags: boolean): void {
   if (organizeJob.state === 'running') return;
-  organizeJob = { state: 'running', source, dest, phase: 'planning', done: 0, total: 0, startedAt: Date.now() };
-  void (async () => {
-    try {
-      const plan = await planFor(source, dest, presetKey);
-      organizeJob.total = plan.actions.length;
-      organizeJob.phase = 'copying';
-      const rep = await executePlan(plan, {
-        sourceRoot: source, // enforces dest-outside-source + lets the engine skip already-organized files
-        writeTags,
-        onProgress: (done, total) => {
-          organizeJob.done = done;
-          organizeJob.total = total;
-        },
-      });
-      organizeJob = {
-        ...organizeJob,
-        state: 'done',
-        phase: 'done',
-        result: {
-          copied: rep.copied,
-          skipped: rep.skipped,
-          failed: rep.failed,
-          tagged: rep.tagged,
-          bytes: rep.bytesCopied,
-          dest,
-        },
-        finishedAt: Date.now(),
-      };
-    } catch (e) {
-      organizeJob = { ...organizeJob, state: 'error', error: e instanceof Error ? e.message : String(e), finishedAt: Date.now() };
+  organizeJob = { state: 'running', source, dest, phase: 'starting worker', done: 0, total: 0, startedAt: Date.now() };
+
+  const child = spawn(
+    process.execPath,
+    ['--import', 'tsx', WORKER, source, dest, presetKey, String(writeTags)],
+    { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  organizeChild = child;
+  organizeJob.pid = child.pid;
+
+  let buf = '';
+  child.stdout.on('data', (d: Buffer) => {
+    buf += d.toString();
+    let nl: number;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        continue; // ignore any non-JSON noise from libraries
+      }
+      if (msg.type === 'plan') {
+        organizeJob.total = Number(msg.actions ?? organizeJob.total);
+        organizeJob.phase = 'copying';
+      } else if (msg.type === 'progress') {
+        organizeJob.done = Number(msg.done ?? organizeJob.done);
+        organizeJob.total = Number(msg.total ?? organizeJob.total);
+        if (typeof msg.phase === 'string') organizeJob.phase = msg.phase;
+        else organizeJob.phase = 'copying';
+      } else if (msg.type === 'done') {
+        organizeJob = {
+          ...organizeJob,
+          state: 'done',
+          phase: 'done',
+          result: { copied: msg.copied, skipped: msg.skipped, failed: msg.failed, tagged: msg.tagged, bytes: msg.bytes, dest },
+          finishedAt: Date.now(),
+        };
+      } else if (msg.type === 'error') {
+        organizeJob = { ...organizeJob, state: 'error', error: String(msg.message ?? 'worker error'), finishedAt: Date.now() };
+      }
     }
-  })();
+  });
+
+  let stderr = '';
+  child.stderr.on('data', (d: Buffer) => {
+    stderr += d.toString();
+  });
+  child.on('error', (e) => {
+    organizeJob = { ...organizeJob, state: 'error', error: e.message, finishedAt: Date.now() };
+    organizeChild = null;
+  });
+  child.on('exit', (code, signal) => {
+    organizeChild = null;
+    if (organizeJob.state === 'running') {
+      // exited without a terminal message
+      if (signal) {
+        organizeJob = { ...organizeJob, state: 'cancelled', phase: 'cancelled', finishedAt: Date.now() };
+      } else {
+        organizeJob = {
+          ...organizeJob,
+          state: code === 0 ? 'done' : 'error',
+          phase: 'exited',
+          ...(code === 0 ? {} : { error: stderr.trim().slice(-500) || `worker exited with code ${code}` }),
+          finishedAt: Date.now(),
+        };
+      }
+    }
+  });
+}
+
+/** Stop a running organize child process. */
+function cancelOrganize(): boolean {
+  if (organizeChild && organizeJob.state === 'running') {
+    organizeChild.kill();
+    return true;
+  }
+  return false;
 }
 
 /* =================================== read endpoints =================================== */
@@ -412,6 +467,10 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     return json(res, 202, { ok: true, job: organizeJob });
   }
   if (path === '/api/organize/status') return json(res, 200, organizeJob);
+  if (path === '/api/organize/cancel' && method === 'POST') {
+    const ok = cancelOrganize();
+    return json(res, ok ? 200 : 409, { ok, job: organizeJob });
+  }
 
   // ---- read endpoints ----
   if (path === '/api/overview') return overview(db, res);

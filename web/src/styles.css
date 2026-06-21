@@ -859,6 +859,14 @@ select.sb-input {
 .btn.primary:hover:not(:disabled) {
   filter: brightness(1.07);
 }
+.btn.danger {
+  background: rgba(232, 121, 107, 0.12);
+  border-color: rgba(232, 121, 107, 0.4);
+  color: var(--danger);
+}
+.btn.danger:hover:not(:disabled) {
+  background: rgba(232, 121, 107, 0.2);
+}
 
 .sb-status {
   margin-top: 12px;

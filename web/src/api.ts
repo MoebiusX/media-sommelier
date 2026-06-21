@@ -92,12 +92,13 @@ export interface ScanStatus {
 }
 
 export interface OrganizeStatus {
-  state: 'idle' | 'running' | 'done' | 'error';
+  state: 'idle' | 'running' | 'done' | 'error' | 'cancelled';
   source?: string;
   dest?: string;
   phase: string;
   done: number;
   total: number;
+  pid?: number;
   result?: { copied: number; skipped: number; failed: number; tagged: number; bytes: number; dest: string };
   error?: string;
 }
@@ -159,6 +160,7 @@ export const api = {
   startOrganize: (b: { source: string; dest: string; preset: string; writeTags: boolean }) =>
     post<{ ok: boolean }>('/api/organize/run', b),
   organizeStatus: () => get<OrganizeStatus>('/api/organize/status'),
+  cancelOrganize: () => post<{ ok: boolean }>('/api/organize/cancel', {}),
 };
 
 // ---- formatting helpers ----
