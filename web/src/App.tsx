@@ -5,6 +5,8 @@ import Library, { type LibraryView } from './Library';
 import Organize from './Organize';
 import SourceBar from './SourceBar';
 import { Icon } from './ui';
+import { PlayerProvider } from './player';
+import PlayerBar from './PlayerBar';
 
 type Tab = 'overview' | 'library' | 'organize';
 
@@ -87,6 +89,7 @@ export default function App() {
   );
 
   return (
+    <PlayerProvider>
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
@@ -130,6 +133,8 @@ export default function App() {
           )}
         </div>
       </main>
+      <PlayerBar />
     </div>
+    </PlayerProvider>
   );
 }

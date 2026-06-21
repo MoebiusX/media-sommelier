@@ -11,7 +11,8 @@
  * enforces dest-outside-source + collision-fail). Only data/ and the chosen destination are written.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { dirname, resolve, sep, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
@@ -98,6 +99,19 @@ function meta<T>(db: Database.Database, key: string): T | undefined {
   return row ? (JSON.parse(row.value) as T) : undefined;
 }
 
+/**
+ * True if `target` resolves to `root` or sits inside it. Handles the drive-root case correctly:
+ * resolve('Y:\\') already ends in a separator, so naively appending one yields 'Y:\\\\' and every
+ * real path fails to match — hence the endsWith(sep) guard.
+ */
+function isUnderRoot(root: string | undefined, target: string): boolean {
+  if (root == null) return false;
+  const r = resolve(root);
+  const t = resolve(target);
+  if (t === r) return true;
+  return t.startsWith(r.endsWith(sep) ? r : r + sep);
+}
+
 interface OverviewMeta {
   tracks: number;
   albums: number;
@@ -144,6 +158,7 @@ const WORKER = join(dirname(fileURLToPath(import.meta.url)), 'organize-worker.ts
 /** Start indexing a folder into SQLite (point-at-a-folder control). No-op if one is already running. */
 function startScan(source: string): void {
   if (scanJob.state === 'running') return;
+  reportCache.delete(source); // re-indexing implies the folder may have changed — drop the cached walk
   scanJob = { state: 'running', source, phase: 'walking folder + reading tags', done: 0, total: 0, startedAt: Date.now() };
   void (async () => {
     try {
@@ -159,15 +174,136 @@ function startScan(source: string): void {
   })();
 }
 
-/** Build an organize plan from a source folder (walk → reconstruct → planOrganize). READ-only. */
-async function planFor(source: string, dest: string, presetKey: string): Promise<OrganizePlan> {
+/**
+ * Walk + reconstruct is the slow step (a network-drive walk over 10K+ files takes ~minutes); the
+ * naming scheme never affects it. Cache the reconstructed report per source so Simulate, Preview, and
+ * repeat runs share ONE walk. Invalidated when that source is re-scanned (it may have changed on disk).
+ */
+const reportCache = new Map<string, ReturnType<typeof reconstruct>>();
+
+async function reportFor(source: string): Promise<ReturnType<typeof reconstruct>> {
+  const hit = reportCache.get(source);
+  if (hit) return hit;
   const records = await walkToArray(source, { include: ['music'] });
   const report = reconstruct(records);
+  reportCache.set(source, report);
+  return report;
+}
+
+/** Build an organize plan from a source folder (walk → reconstruct → planOrganize). READ-only. */
+async function planFor(source: string, dest: string, presetKey: string): Promise<OrganizePlan> {
+  const report = await reportFor(source);
   const preset = ORGANIZE_PRESETS[presetKey];
   return planOrganize(report.candidates, {
     destRoot: dest,
     ...(preset ? { template: preset.template } : {}),
   });
+}
+
+/* ---- scheme simulation: score every naming preset by resulting folder sparsity ----
+ * The whole point: pick a scheme WITHOUT trial-and-error organize runs. We walk + reconstruct ONCE
+ * (cheap — the walk reads only directory entries, not tags) then apply every template in memory. A
+ * "sparse" folder (1–2 tracks) means an album got fragmented; fewer is better. */
+
+interface SchemeStat {
+  key: string;
+  label: string;
+  template: string;
+  folders: number;
+  tracks: number;
+  singletonFolders: number;
+  sparseFolders: number;
+  sparseTracks: number;
+  medianPerFolder: number;
+  largestFolder: number;
+  collisions: number;
+  skipped: number;
+  hist: Array<{ label: string; folders: number }>;
+}
+
+/** Directory portion of a '/'-joined relative path ('' for a file with no folder, i.e. the flat scheme). */
+const folderOf = (rel: string): string => {
+  const i = rel.lastIndexOf('/');
+  return i < 0 ? '' : rel.slice(0, i);
+};
+
+const median = (xs: number[]): number => {
+  if (xs.length === 0) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m]! : Math.round((s[m - 1]! + s[m]!) / 2);
+};
+
+function statForScheme(
+  key: string,
+  label: string,
+  template: string,
+  candidates: Parameters<typeof planOrganize>[0],
+): SchemeStat {
+  const plan = planOrganize(candidates, { destRoot: 'SIM', template });
+  const byFolder = new Map<string, number>();
+  for (const a of plan.actions) {
+    const f = folderOf(a.destRelPath);
+    byFolder.set(f, (byFolder.get(f) ?? 0) + 1);
+  }
+  const counts = [...byFolder.values()];
+  let one = 0;
+  let two = 0;
+  let threeToFive = 0;
+  let sixToTen = 0;
+  let elevenPlus = 0;
+  let singleton = 0;
+  let sparse = 0;
+  let sparseTracks = 0;
+  for (const c of counts) {
+    if (c === 1) {
+      one++;
+      singleton++;
+    } else if (c === 2) two++;
+    else if (c <= 5) threeToFive++;
+    else if (c <= 10) sixToTen++;
+    else elevenPlus++;
+    if (c <= 2) {
+      sparse++;
+      sparseTracks += c;
+    }
+  }
+  return {
+    key,
+    label,
+    template,
+    folders: counts.length,
+    tracks: plan.actions.length,
+    singletonFolders: singleton,
+    sparseFolders: sparse,
+    sparseTracks,
+    medianPerFolder: median(counts),
+    largestFolder: counts.length ? Math.max(...counts) : 0,
+    collisions: plan.collisions.length,
+    skipped: plan.skipped.length,
+    hist: [
+      { label: '1', folders: one },
+      { label: '2', folders: two },
+      { label: '3–5', folders: threeToFive },
+      { label: '6–10', folders: sixToTen },
+      { label: '11+', folders: elevenPlus },
+    ],
+  };
+}
+
+/** Walk+reconstruct once (cached), then rank every naming preset by sparse-folder count. READ-only. */
+async function simulateSchemes(
+  source: string,
+): Promise<{ source: string; schemes: SchemeStat[]; recommended: string | null }> {
+  const report = await reportFor(source);
+  const schemes = Object.entries(ORGANIZE_PRESETS).map(([k, p]) =>
+    statForScheme(k, p.label, p.template, report.candidates),
+  );
+  // Recommend the best *foldered* scheme; 'flat' has one folder by design, so it's never the answer here.
+  const ranked = schemes
+    .filter((s) => s.key !== 'flat')
+    .sort((a, b) => a.sparseFolders - b.sparseFolders || a.folders - b.folders);
+  return { source, schemes, recommended: ranked[0]?.key ?? null };
 }
 
 /**
@@ -378,9 +514,7 @@ async function cover(db: Database.Database, res: ServerResponse, params: URLSear
     for (const t of ts) lookupPaths.push(t.path);
   } else if (rawPath) {
     const root = meta<{ root?: string }>(db, 'overview')?.root;
-    const resolved = resolve(rawPath);
-    const underRoot =
-      root != null && (resolved === resolve(root) || resolved.startsWith(resolve(root) + sep));
+    const underRoot = isUnderRoot(root, rawPath);
     const known =
       (db.prepare('SELECT 1 FROM tracks WHERE path = ?').get(rawPath) as unknown) ??
       (db.prepare('SELECT 1 FROM albums WHERE coverPath = ?').get(rawPath) as unknown) ??
@@ -404,6 +538,90 @@ async function cover(db: Database.Database, res: ServerResponse, params: URLSear
     }
   }
   json(res, 404, { ok: false, error: 'no_cover_art' });
+}
+
+/** Extensions the browser <audio> element can actually decode. WMA/APE are indexed but not playable. */
+const AUDIO_MIME: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  flac: 'audio/flac',
+  m4a: 'audio/mp4',
+  mp4: 'audio/mp4',
+  aac: 'audio/aac',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  wav: 'audio/wav',
+  aiff: 'audio/aiff',
+  aif: 'audio/aiff',
+};
+
+/** Attach an error handler so a mid-stream read failure ends the response instead of crashing. */
+function pipeSafe(stream: ReturnType<typeof createReadStream>, res: ServerResponse): void {
+  stream.on('error', () => {
+    if (!res.headersSent) res.writeHead(404);
+    res.end();
+  });
+  stream.pipe(res);
+}
+
+/**
+ * GET /api/audio?path= — stream an indexed track with HTTP Range support so the player can seek.
+ * READ-ONLY and confined exactly like /api/cover: the path must resolve under the indexed root AND
+ * exactly match a row in `tracks`. Anything else is refused (defeats ../ traversal / arbitrary reads).
+ * The source file is only ever read.
+ */
+async function serveAudio(
+  db: Database.Database,
+  req: IncomingMessage,
+  res: ServerResponse,
+  params: URLSearchParams,
+): Promise<void> {
+  const rawPath = params.get('path');
+  if (!rawPath) return json(res, 400, { ok: false, error: 'no_path' });
+
+  const root = meta<{ root?: string }>(db, 'overview')?.root;
+  const underRoot = isUnderRoot(root, rawPath);
+  const known = db.prepare('SELECT 1 FROM tracks WHERE path = ?').get(rawPath) as unknown;
+  if (!underRoot || !known) return json(res, 404, { ok: false, error: 'track_not_found' });
+
+  const ext = (rawPath.split('.').pop() ?? '').toLowerCase();
+  const type = AUDIO_MIME[ext];
+  if (!type) return json(res, 415, { ok: false, error: 'unsupported_audio', ext });
+
+  let size: number;
+  try {
+    size = (await stat(rawPath)).size;
+  } catch {
+    return json(res, 404, { ok: false, error: 'file_missing' });
+  }
+
+  const range = req.headers.range;
+  const m = range ? /bytes=(\d+)-(\d*)/.exec(range) : null;
+  if (m) {
+    let start = Number(m[1]);
+    let end = m[2] ? Number(m[2]) : size - 1;
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': size });
+      pipeSafe(createReadStream(rawPath), res);
+      return;
+    }
+    end = Math.min(end, size - 1);
+    if (start > end || start >= size) {
+      res.writeHead(416, { 'Content-Range': `bytes */${size}` });
+      res.end();
+      return;
+    }
+    res.writeHead(206, {
+      'Content-Type': type,
+      'Accept-Ranges': 'bytes',
+      'Content-Range': `bytes ${start}-${end}/${size}`,
+      'Content-Length': end - start + 1,
+    });
+    pipeSafe(createReadStream(rawPath, { start, end }), res);
+  } else {
+    res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': size });
+    pipeSafe(createReadStream(rawPath), res);
+  }
 }
 
 /* ====================================== router ====================================== */
@@ -440,6 +658,12 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
   }
   if (path === '/api/scan/status') return json(res, 200, scanJob);
 
+  if (path === '/api/organize/simulate' && method === 'POST') {
+    const b = await readBody(req);
+    const source = String(b.source ?? '').trim();
+    if (!source) return json(res, 400, { ok: false, error: 'no_source' });
+    return json(res, 200, await simulateSchemes(source));
+  }
   if (path === '/api/organize/plan' && method === 'POST') {
     const b = await readBody(req);
     const source = String(b.source ?? '').trim();
@@ -476,6 +700,7 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
   if (path === '/api/overview') return overview(db, res);
   if (path === '/api/artists') return artists(db, res);
   if (path === '/api/cover') return cover(db, res, url.searchParams);
+  if (path === '/api/audio') return serveAudio(db, req, res, url.searchParams);
 
   const artistMatch = /^\/api\/artist\/(.+)$/.exec(path);
   if (artistMatch) return artist(db, res, decodeURIComponent(artistMatch[1]!));

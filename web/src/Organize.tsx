@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type OrganizeStatus, type PlanSummary, type Preset } from './api';
+import { api, type OrganizeStatus, type PlanSummary, type Preset, type SimulateResult } from './api';
 
 /**
  * The organizer — the whole point of the app. Pick the messy source folder + a destination + a naming
@@ -23,6 +23,8 @@ export default function Organize({
   const [writeTags, setWriteTags] = useState(false);
   const [plan, setPlan] = useState<PlanSummary | null>(null);
   const [planning, setPlanning] = useState(false);
+  const [sim, setSim] = useState<SimulateResult | null>(null);
+  const [simulating, setSimulating] = useState(false);
   const [job, setJob] = useState<OrganizeStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -49,6 +51,7 @@ export default function Organize({
 
   async function preview() {
     setErr(null);
+    setSim(null);
     setPlan(null);
     setJob(null);
     setPlanning(true);
@@ -61,8 +64,25 @@ export default function Organize({
     }
   }
 
+  // Score every naming scheme in one walk so you can pick the least-fragmenting one without trial runs.
+  async function simulate() {
+    setErr(null);
+    setSim(null);
+    setPlan(null);
+    setJob(null);
+    setSimulating(true);
+    try {
+      setSim(await api.simulateSchemes(source));
+    } catch (e) {
+      setErr(String((e as Error).message ?? e));
+    } finally {
+      setSimulating(false);
+    }
+  }
+
   async function run() {
     setErr(null);
+    setSim(null);
     setPlan(null);
     try {
       await api.startOrganize({ source, dest, preset, writeTags });
@@ -157,6 +177,14 @@ export default function Organize({
         </div>
 
         <div className="form-actions">
+          <button
+            className="btn ghost"
+            onClick={simulate}
+            disabled={simulating || planning || running || noSource}
+            title="Compare all naming schemes by how many sparse folders each would create"
+          >
+            {simulating ? 'Simulating…' : 'Simulate schemes'}
+          </button>
           <button className="btn ghost" onClick={preview} disabled={planning || running || noSource || noDest}>
             {planning ? 'Planning…' : 'Preview plan'}
           </button>
@@ -176,6 +204,117 @@ export default function Organize({
       {err && (
         <div className="panel err-text" style={{ marginTop: 16 }}>
           {err}
+        </div>
+      )}
+
+      {sim && !job && (
+        <div className="panel" style={{ marginTop: 16 }}>
+          <div className="panel-title">
+            Naming scheme comparison{' '}
+            <span className="muted">
+              {(sim.schemes[0]?.tracks ?? 0).toLocaleString()} tracks · dry run, nothing copied
+            </span>
+          </div>
+          <p className="page-lede" style={{ margin: '0 0 14px', fontSize: 13.5 }}>
+            A “sparse” folder holds just 1–2 songs — usually an album that got fragmented (e.g. tracks
+            whose year tags disagree split across two folders). Fewer is cleaner. The bars show how many
+            folders fall into each songs-per-folder bucket.
+          </p>
+          {(() => {
+            const foldered = sim.schemes.filter((s) => s.key !== 'flat');
+            const rec = sim.schemes.find((s) => s.key === sim.recommended);
+            if (!rec || foldered.length === 0) return null;
+            const minS = Math.min(...foldered.map((s) => s.sparseFolders));
+            const maxS = Math.max(...foldered.map((s) => s.sparseFolders));
+            const spread = maxS - minS;
+            // Only call a scheme the winner when it meaningfully beats the others.
+            const meaningful = spread >= 20 && spread / Math.max(1, rec.folders) >= 0.02;
+            if (meaningful) {
+              const worst = foldered.reduce((a, b) => (b.sparseFolders > a.sparseFolders ? b : a));
+              return (
+                <div className="scheme-verdict">
+                  <span>✦</span>
+                  <span>
+                    <b className="ok-text">{rec.label}</b> makes{' '}
+                    <b>{(worst.sparseFolders - rec.sparseFolders).toLocaleString()} fewer sparse folders</b>{' '}
+                    than “{worst.label}” — it keeps more albums whole.
+                  </span>
+                </div>
+              );
+            }
+            return (
+              <div className="scheme-verdict warn">
+                <span>!</span>
+                <span>
+                  The naming scheme barely changes the outcome — every foldered scheme leaves ~
+                  <b>{minS.toLocaleString()}</b> sparse folders, and{' '}
+                  <b>{rec.singletonFolders.toLocaleString()}</b> are single-track folders. The
+                  fragmentation is in the source (loose / ungrouped tracks), not the scheme — pick any of
+                  them.
+                </span>
+              </div>
+            );
+          })()}
+          <div className="scheme-cmp">
+            {sim.schemes.map((s) => {
+              const maxH = Math.max(1, ...s.hist.map((h) => h.folders));
+              const isBest = s.key === sim.recommended;
+              const isFlat = s.key === 'flat';
+              return (
+                <div key={s.key} className={'scheme-col' + (isBest ? ' best' : '')}>
+                  <div className="scheme-head">
+                    <div className="scheme-label">{s.label}</div>
+                    {isBest && <span className="badge good">fewest sparse</span>}
+                  </div>
+                  <div className="scheme-big">
+                    <span className="big-n">{isFlat ? '—' : s.sparseFolders.toLocaleString()}</span>
+                    <span className="big-l">
+                      {isFlat ? 'flat — one folder for everything' : 'sparse folders (1–2 songs)'}
+                    </span>
+                  </div>
+                  <div className="scheme-mini">
+                    {s.hist.map((h) => (
+                      <div
+                        key={h.label}
+                        className="mini-col"
+                        title={`${h.folders.toLocaleString()} folder${h.folders === 1 ? '' : 's'} with ${h.label} song${h.label === '1' ? '' : 's'}`}
+                      >
+                        <div className="mini-bar" style={{ height: `${(h.folders / maxH) * 100}%` }} />
+                        <div className="mini-lab">{h.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="scheme-stats">
+                    <div>
+                      <span>Folders</span>
+                      <b>{s.folders.toLocaleString()}</b>
+                    </div>
+                    <div>
+                      <span>Median / folder</span>
+                      <b>{s.medianPerFolder}</b>
+                    </div>
+                    <div>
+                      <span>Largest</span>
+                      <b>{s.largestFolder.toLocaleString()}</b>
+                    </div>
+                    {s.collisions > 0 && (
+                      <div>
+                        <span>Collisions</span>
+                        <b className="err-text">{s.collisions.toLocaleString()}</b>
+                      </div>
+                    )}
+                  </div>
+                  {preset === s.key ? (
+                    <div className="scheme-sel">Selected ✓</div>
+                  ) : (
+                    <button className="btn ghost scheme-use" onClick={() => setPreset(s.key)}>
+                      Use this scheme
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

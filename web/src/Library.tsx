@@ -9,6 +9,7 @@ import {
   type ArtistSummary,
 } from './api';
 import { Cover, ErrorState, FlagBadges, Icon, Loading } from './ui';
+import { usePlayer, type PlayerTrack } from './player';
 
 /** Library coordinates which sub-view is shown via lightweight local state. */
 export type LibraryView =
@@ -254,6 +255,29 @@ function AlbumPage({
 
   const showDiscs = (data?.discCount ?? 1) > 1 && groupedByDisc.length > 1;
 
+  const player = usePlayer();
+  // Flat, render-ordered queue for this album + a path→index lookup so any row can start playback.
+  const playlist = useMemo<PlayerTrack[]>(
+    () =>
+      groupedByDisc.flatMap(([, tracks]) =>
+        tracks.map((t) => ({
+          id: t.id,
+          title: t.title,
+          artistName: t.artistName || data?.artistName || '',
+          path: t.path,
+          durationMs: t.durationMs,
+          ...(data?.id ? { albumId: data.id } : {}),
+          ...(data?.title ? { albumTitle: data.title } : {}),
+        })),
+      ),
+    [groupedByDisc, data?.artistName, data?.id, data?.title],
+  );
+  const indexByPath = useMemo(() => {
+    const m = new Map<string, number>();
+    playlist.forEach((t, i) => m.set(t.path, i));
+    return m;
+  }, [playlist]);
+
   return (
     <>
       <div className="breadcrumb">
@@ -309,6 +333,18 @@ function AlbumPage({
                 <span>{Math.round(data.confidence * 100)}% confidence</span>
               </div>
               <FlagBadges flags={data.flags} lossless={data.lossless} discCount={data.discCount} />
+              <div className="album-actions">
+                <button
+                  className="btn primary play-btn"
+                  onClick={() => playlist.length && player.playQueue(playlist, 0)}
+                  disabled={playlist.length === 0}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <path d="M7 5.2v13.6a1 1 0 0 0 1.54.84l10.5-6.8a1 1 0 0 0 0-1.68L8.54 4.36A1 1 0 0 0 7 5.2z" />
+                  </svg>
+                  Play album
+                </button>
+              </div>
               {data.evidence.length > 0 && (
                 <ul className="evidence">
                   {data.evidence.map((e, i) => (
@@ -323,23 +359,49 @@ function AlbumPage({
             {groupedByDisc.map(([disc, tracks]) => (
               <div key={disc}>
                 {showDiscs && <div className="disc-head">Disc {disc}</div>}
-                {tracks.map((t) => (
-                  <div className="trk" key={t.id}>
-                    <div className="no">{t.trackNo ?? '–'}</div>
-                    <div>
-                      <div className="tt" title={t.title}>
-                        {t.title}
+                {tracks.map((t) => {
+                  const active = player.current?.path === t.path;
+                  return (
+                    <div
+                      className={'trk' + (active ? ' active' : '')}
+                      key={t.id}
+                      onClick={() =>
+                        active
+                          ? player.toggle()
+                          : player.playQueue(playlist, indexByPath.get(t.path) ?? 0)
+                      }
+                    >
+                      <div className="no">
+                        {active ? (
+                          <span className={'eq' + (player.isPlaying ? ' on' : '')} aria-hidden>
+                            <i />
+                            <i />
+                            <i />
+                          </span>
+                        ) : (
+                          <>
+                            <span className="num">{t.trackNo ?? '–'}</span>
+                            <svg className="pio" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                              <path d="M7 5.2v13.6a1 1 0 0 0 1.54.84l10.5-6.8a1 1 0 0 0 0-1.68L8.54 4.36A1 1 0 0 0 7 5.2z" />
+                            </svg>
+                          </>
+                        )}
                       </div>
-                      {t.artistName && t.artistName !== data.artistName && (
-                        <div className="tsub">{t.artistName}</div>
-                      )}
+                      <div>
+                        <div className="tt" title={t.title}>
+                          {t.title}
+                        </div>
+                        {t.artistName && t.artistName !== data.artistName && (
+                          <div className="tsub">{t.artistName}</div>
+                        )}
+                      </div>
+                      <div className="meta">
+                        {t.lossless ? 'FLAC' : t.bitrateKbps ? `${t.bitrateKbps} kbps` : ''}
+                      </div>
+                      <div className="meta">{fmtDuration(t.durationMs)}</div>
                     </div>
-                    <div className="meta">
-                      {t.lossless ? 'FLAC' : t.bitrateKbps ? `${t.bitrateKbps} kbps` : ''}
-                    </div>
-                    <div className="meta">{fmtDuration(t.durationMs)}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ))}
           </div>

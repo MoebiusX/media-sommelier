@@ -110,6 +110,28 @@ export interface PlanSummary {
   sample: string[];
 }
 
+export interface SchemeStat {
+  key: string;
+  label: string;
+  template: string;
+  folders: number;
+  tracks: number;
+  singletonFolders: number;
+  sparseFolders: number;
+  sparseTracks: number;
+  medianPerFolder: number;
+  largestFolder: number;
+  collisions: number;
+  skipped: number;
+  hist: Array<{ label: string; folders: number }>;
+}
+
+export interface SimulateResult {
+  source: string;
+  schemes: SchemeStat[];
+  recommended: string | null;
+}
+
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) {
@@ -157,6 +179,7 @@ export const api = {
   scanStatus: () => get<ScanStatus>('/api/scan/status'),
   organizePlan: (b: { source: string; dest: string; preset: string }) =>
     post<PlanSummary>('/api/organize/plan', b),
+  simulateSchemes: (source: string) => post<SimulateResult>('/api/organize/simulate', { source }),
   startOrganize: (b: { source: string; dest: string; preset: string; writeTags: boolean }) =>
     post<{ ok: boolean }>('/api/organize/run', b),
   organizeStatus: () => get<OrganizeStatus>('/api/organize/status'),
