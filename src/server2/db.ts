@@ -80,6 +80,21 @@ CREATE TABLE IF NOT EXISTS album_overrides (
   fetchedAt INTEGER NOT NULL DEFAULT 0
 );
 
+-- Enrichment ledger: caches the MusicBrainz/Cover Art Archive attempt per album so re-runs and
+-- resumed sweeps skip the network for everything already tried.
+CREATE TABLE IF NOT EXISTS album_enrich (
+  albumId     TEXT PRIMARY KEY,
+  attemptedAt INTEGER NOT NULL,
+  matched     INTEGER NOT NULL,
+  mbid        TEXT,
+  rgMbid      TEXT,
+  matchArtist TEXT,
+  matchAlbum  TEXT,
+  matchYear   INTEGER,
+  score       REAL,
+  coverState  TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_tracks_albumId    ON tracks(albumId);
 CREATE INDEX IF NOT EXISTS idx_tracks_artistName ON tracks(artistName);
 CREATE INDEX IF NOT EXISTS idx_albums_artistName ON albums(artistName);

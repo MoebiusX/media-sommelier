@@ -283,8 +283,8 @@ export const api = {
   cancelRefresh: (albumId: string) => post<{ ok: boolean }>('/api/album/refresh/cancel', { albumId }),
   pendingCoverUrl: (albumId: string) =>
     `/api/album/refresh/cover?albumId=${encodeURIComponent(albumId)}&pending=1`,
-  refreshCandidates: () => get<{ missing: number; total: number }>('/api/refresh/candidates'),
-  startRefreshBatch: (b: { onlyMissing?: boolean; limit?: number }) =>
+  refreshCandidates: () => get<{ missing: number; attempted: number; total: number }>('/api/refresh/candidates'),
+  startRefreshBatch: (b: { onlyMissing?: boolean; force?: boolean; limit?: number }) =>
     post<{ ok: boolean; error?: string; job: RefreshBatchJob }>('/api/refresh/start', b),
   refreshBatchStatus: () => get<RefreshBatchJob>('/api/refresh/status'),
   cancelRefreshBatch: () => post<{ ok: boolean }>('/api/refresh/cancel', {}),

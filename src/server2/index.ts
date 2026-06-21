@@ -83,6 +83,21 @@ export function openDb(dbPath: string = DB_PATH): Database.Database {
       mbid      TEXT,
       fetchedAt INTEGER NOT NULL DEFAULT 0
     );
+    -- Enrichment ledger: one row per album we've ATTEMPTED to look up online. Caches the MusicBrainz
+    -- decision + Cover Art Archive result so a re-run (or a resumed/cancelled sweep) skips the network
+    -- for everything already tried. This ledger IS the sweep's resume cursor.
+    CREATE TABLE IF NOT EXISTS album_enrich (
+      albumId     TEXT PRIMARY KEY,
+      attemptedAt INTEGER NOT NULL,
+      matched     INTEGER NOT NULL,       -- 1 if MusicBrainz returned a usable match
+      mbid        TEXT,
+      rgMbid      TEXT,
+      matchArtist TEXT,
+      matchAlbum  TEXT,
+      matchYear   INTEGER,
+      score       REAL,
+      coverState  TEXT                    -- 'found' | 'none' (Cover Art Archive), NULL until checked
+    );
   `);
   return db;
 }
@@ -603,26 +618,112 @@ async function fetchFrontCover(m: { mbid: string; releaseGroupMbid?: string }): 
   return null;
 }
 
-/** Run a lookup for one album and stage the fetched cover under its pending path. */
-async function refreshAlbum(
+interface EnrichLedgerRow {
+  albumId: string;
+  matched: number;
+  mbid: string | null;
+  rgMbid: string | null;
+  matchArtist: string | null;
+  matchAlbum: string | null;
+  matchYear: number | null;
+  score: number | null;
+  coverState: string | null;
+}
+
+const readLedger = (db: Database.Database, albumId: string): EnrichLedgerRow | undefined =>
+  db.prepare('SELECT * FROM album_enrich WHERE albumId = ?').get(albumId) as EnrichLedgerRow | undefined;
+
+/** Record a fresh lookup attempt. coverState resets to NULL (re-evaluated by ensurePendingCover). */
+function writeLedger(db: Database.Database, albumId: string, match: RefreshMatch | null): void {
+  db.prepare(
+    `INSERT INTO album_enrich(albumId,attemptedAt,matched,mbid,rgMbid,matchArtist,matchAlbum,matchYear,score,coverState)
+     VALUES(@albumId,@now,@matched,@mbid,@rgMbid,@matchArtist,@matchAlbum,@matchYear,@score,NULL)
+     ON CONFLICT(albumId) DO UPDATE SET
+       attemptedAt=@now, matched=@matched, mbid=@mbid, rgMbid=@rgMbid,
+       matchArtist=@matchArtist, matchAlbum=@matchAlbum, matchYear=@matchYear, score=@score, coverState=NULL`,
+  ).run({
+    albumId,
+    now: Date.now(),
+    matched: match ? 1 : 0,
+    mbid: match?.mbid ?? null,
+    rgMbid: match?.releaseGroupMbid ?? null,
+    matchArtist: match?.artist ?? null,
+    matchAlbum: match?.album ?? null,
+    matchYear: match?.year ?? null,
+    score: match?.score ?? null,
+  });
+}
+
+const setCoverState = (db: Database.Database, albumId: string, state: 'found' | 'none'): void => {
+  db.prepare('UPDATE album_enrich SET coverState = ? WHERE albumId = ?').run(state, albumId);
+};
+
+/** Look an album up, preferring the cached ledger decision. Only `force` (or a cache miss) hits MusicBrainz. */
+async function cachedLookup(
   db: Database.Database,
   albumId: string,
-): Promise<{ matched: boolean; before: { title: string; year: number | null }; match?: RefreshMatch; coverFetched: boolean } | null> {
-  const al = db.prepare('SELECT id, title, artistName, year, trackCount FROM albums WHERE id = ?').get(albumId) as
-    | { title: string; artistName: string; year: number | null; trackCount: number }
-    | undefined;
-  if (!al) return null;
-  const before = { title: al.title, year: al.year };
-  const match = await lookupAlbum({ artistName: al.artistName, title: al.title, trackCount: al.trackCount });
-  if (!match) return { matched: false, before, coverFetched: false };
-  let coverFetched = false;
+  album: { artistName: string; title: string; trackCount: number },
+  force: boolean,
+): Promise<RefreshMatch | null> {
+  if (!force) {
+    const row = readLedger(db, albumId);
+    if (row) {
+      if (!row.matched) return null;
+      return {
+        mbid: row.mbid!,
+        ...(row.rgMbid ? { releaseGroupMbid: row.rgMbid } : {}),
+        artist: row.matchArtist ?? album.artistName,
+        album: row.matchAlbum ?? album.title,
+        ...(row.matchYear != null ? { year: row.matchYear } : {}),
+        score: row.score ?? 0,
+      };
+    }
+  }
+  const match = await lookupAlbum(album);
+  writeLedger(db, albumId, match);
+  return match;
+}
+
+/** Ensure a pending cover exists for a match, using the staged file or the CAA negative cache when possible. */
+async function ensurePendingCover(db: Database.Database, albumId: string, match: RefreshMatch): Promise<boolean> {
+  if (existsSync(pendingCoverPath(albumId))) return true; // already staged this session
+  if (readLedger(db, albumId)?.coverState === 'none') return false; // negative cache — don't re-hit CAA
   const cover = await fetchFrontCover(match);
   if (cover) {
     await mkdir(COVER_DIR, { recursive: true });
     await writeFile(pendingCoverPath(albumId), cover);
-    coverFetched = true;
+    setCoverState(db, albumId, 'found');
+    return true;
   }
-  return { matched: true, before, match, coverFetched };
+  setCoverState(db, albumId, 'none');
+  return false;
+}
+
+/** Cache-aware enrichment for one album (no DB album-row fetch — caller supplies the fields). */
+async function enrichOne(
+  db: Database.Database,
+  album: { id: string; artistName: string; title: string; trackCount: number },
+  force: boolean,
+): Promise<{ matched: boolean; match?: RefreshMatch; coverFetched: boolean }> {
+  const match = await cachedLookup(db, album.id, { artistName: album.artistName, title: album.title, trackCount: album.trackCount }, force);
+  if (!match) return { matched: false, coverFetched: false };
+  const coverFetched = await ensurePendingCover(db, album.id, match);
+  return { matched: true, match, coverFetched };
+}
+
+/** Per-album refresh (the album-page button): cache-aware lookup + staged cover. */
+async function refreshAlbum(
+  db: Database.Database,
+  albumId: string,
+  force = false,
+): Promise<{ matched: boolean; before: { title: string; year: number | null }; match?: RefreshMatch; coverFetched: boolean } | null> {
+  const al = db.prepare('SELECT id, title, artistName, year, trackCount FROM albums WHERE id = ?').get(albumId) as
+    | { id: string; title: string; artistName: string; year: number | null; trackCount: number }
+    | undefined;
+  if (!al) return null;
+  const before = { title: al.title, year: al.year };
+  const r = await enrichOne(db, al, force);
+  return { matched: r.matched, before, ...(r.match ? { match: r.match } : {}), coverFetched: r.coverFetched };
 }
 
 /** Commit a refresh: stage cover → final, upsert the durable override, update the live album row. */
@@ -689,8 +790,12 @@ interface RefreshBatchJob {
 let refreshJob: RefreshBatchJob = { state: 'idle', phase: '', done: 0, total: 0, proposals: [] };
 let refreshCancel = false;
 
-/** Start a background sweep proposing online matches. `onlyMissing` targets albums without folder art. */
-function startRefreshBatch(db: Database.Database, opts: { onlyMissing: boolean; limit?: number }): { ok: boolean; error?: string } {
+/**
+ * Start a background sweep proposing online matches. `onlyMissing` targets albums without folder art;
+ * `force` ignores the enrichment ledger and re-looks-up everything. Cache-aware via enrichOne(), so a
+ * re-run only hits the network for albums not yet attempted — a cancelled/crashed sweep resumes for free.
+ */
+function startRefreshBatch(db: Database.Database, opts: { onlyMissing: boolean; force?: boolean; limit?: number }): { ok: boolean; error?: string } {
   if (refreshJob.state === 'running') return { ok: false, error: 'refresh_in_progress' };
   const noOverride = `a.id NOT IN (SELECT albumId FROM album_overrides)`;
   const where = opts.onlyMissing ? `WHERE ${noOverride} AND (a.coverPath IS NULL OR a.coverPath = '')` : `WHERE ${noOverride}`;
@@ -704,26 +809,17 @@ function startRefreshBatch(db: Database.Database, opts: { onlyMissing: boolean; 
     try {
       for (const a of rows) {
         if (refreshCancel) break;
-        const match = await lookupAlbum({ artistName: a.artistName, title: a.title, trackCount: a.trackCount });
-        if (match) {
-          let coverFetched = false;
-          const cover = await fetchFrontCover(match);
-          if (cover) {
-            await mkdir(COVER_DIR, { recursive: true });
-            await writeFile(pendingCoverPath(a.id), cover);
-            coverFetched = true;
-          }
-          // Only propose if there's something to gain: a cover or a year we don't have.
-          if (coverFetched || (match.year != null && match.year !== a.year)) {
-            refreshJob.proposals.push({
-              albumId: a.id,
-              artistName: a.artistName,
-              title: a.title,
-              year: a.year,
-              match: { album: match.album, ...(match.year != null ? { year: match.year } : {}), score: match.score, mbid: match.mbid },
-              coverFetched,
-            });
-          }
+        const r = await enrichOne(db, a, opts.force ?? false);
+        // Only propose if there's something to gain: a cover or a year we don't already have.
+        if (r.matched && r.match && (r.coverFetched || (r.match.year != null && r.match.year !== a.year))) {
+          refreshJob.proposals.push({
+            albumId: a.id,
+            artistName: a.artistName,
+            title: a.title,
+            year: a.year,
+            match: { album: r.match.album, ...(r.match.year != null ? { year: r.match.year } : {}), score: r.match.score, mbid: r.match.mbid },
+            coverFetched: r.coverFetched,
+          });
         }
         refreshJob.done++;
       }
@@ -1242,7 +1338,7 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     const b = await readBody(req);
     const albumId = String(b.albumId ?? '');
     if (!albumId) return json(res, 400, { ok: false, error: 'no_albumId' });
-    const r = await refreshAlbum(db, albumId);
+    const r = await refreshAlbum(db, albumId, !!b.force);
     if (!r) return json(res, 404, { ok: false, error: 'album_not_found' });
     return json(res, 200, { ok: true, ...r });
   }
@@ -1282,6 +1378,7 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     const b = await readBody(req);
     const r = startRefreshBatch(db, {
       onlyMissing: b.onlyMissing !== false,
+      force: !!b.force,
       ...(b.limit ? { limit: Number(b.limit) } : {}),
     });
     return json(res, r.ok ? 202 : 409, { ...r, job: refreshJob });
@@ -1289,9 +1386,11 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
   if (path === '/api/refresh/status') return json(res, 200, refreshJob);
   if (path === '/api/refresh/candidates') {
     const noOverride = `id NOT IN (SELECT albumId FROM album_overrides)`;
-    const missing = (db.prepare(`SELECT COUNT(*) c FROM albums WHERE ${noOverride} AND (coverPath IS NULL OR coverPath = '')`).get() as { c: number }).c;
+    const missingWhere = `${noOverride} AND (coverPath IS NULL OR coverPath = '')`;
+    const missing = (db.prepare(`SELECT COUNT(*) c FROM albums WHERE ${missingWhere}`).get() as { c: number }).c;
+    const attempted = (db.prepare(`SELECT COUNT(*) c FROM albums WHERE ${missingWhere} AND id IN (SELECT albumId FROM album_enrich)`).get() as { c: number }).c;
     const total = (db.prepare('SELECT COUNT(*) c FROM albums').get() as { c: number }).c;
-    return json(res, 200, { missing, total });
+    return json(res, 200, { missing, attempted, total });
   }
   if (path === '/api/refresh/cancel' && method === 'POST') {
     refreshCancel = true;

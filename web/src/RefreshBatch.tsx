@@ -7,7 +7,7 @@ import { api, fmtInt, type RefreshBatchJob } from './api';
  * The sweep is rate-limited (~1 album/sec) and cancellable; cancelling keeps whatever it gathered.
  */
 export default function RefreshBatch() {
-  const [cand, setCand] = useState<{ missing: number; total: number } | null>(null);
+  const [cand, setCand] = useState<{ missing: number; attempted: number; total: number } | null>(null);
   const [job, setJob] = useState<RefreshBatchJob | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [applied, setApplied] = useState<number | null>(null);
@@ -43,10 +43,10 @@ export default function RefreshBatch() {
     }
   }, []);
 
-  async function start() {
+  async function start(force = false) {
     setApplied(null);
     setJob(null);
-    const r = await api.startRefreshBatch({ onlyMissing: true });
+    const r = await api.startRefreshBatch({ onlyMissing: true, force });
     setJob(r.job);
     void poll();
   }
@@ -94,16 +94,28 @@ export default function RefreshBatch() {
           <div>
             {cand ? (
               <>
-                <b>{fmtInt(cand.missing)}</b> of {fmtInt(cand.total)} albums have no cover art.{' '}
+                <b>{fmtInt(cand.missing)}</b> of {fmtInt(cand.total)} albums have no cover art
+                {cand.attempted > 0 ? <> · {fmtInt(cand.attempted)} already checked</> : ''}.{' '}
                 {applied != null && <span className="ok-text">✓ applied {fmtInt(applied)} just now.</span>}
               </>
             ) : (
               'Checking your library…'
             )}
           </div>
-          <button className="btn primary" onClick={() => void start()} disabled={!cand || cand.missing === 0}>
-            Find missing covers
-          </button>
+          <div className="rb-intro-actions">
+            {cand && cand.attempted > 0 && (
+              <button
+                className="btn ghost"
+                onClick={() => void start(true)}
+                title="Ignore the cache and look every album up again"
+              >
+                Re-check all
+              </button>
+            )}
+            <button className="btn primary" onClick={() => void start(false)} disabled={!cand || cand.missing === 0}>
+              {cand && cand.attempted > 0 ? 'Resume' : 'Find missing covers'}
+            </button>
+          </div>
         </div>
       )}
 
