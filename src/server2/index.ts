@@ -15,7 +15,7 @@ import { mkdirSync, createReadStream, existsSync } from 'node:fs';
 import { stat, mkdir, writeFile, rename, unlink, copyFile, rm } from 'node:fs/promises';
 import { dirname, resolve, sep, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
@@ -230,9 +230,7 @@ interface Job {
   finishedAt?: number;
 }
 
-let organizeJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
-let organizeChild: ChildProcess | null = null;
-/** Durable job runtime (scan/sync/refresh). Assigned in start(); see jobs.ts. */
+/** Durable job runtime (scan/sync/organize/refresh). Assigned in start(); see jobs.ts. */
 let jobs: JobService;
 const WORKER = join(dirname(fileURLToPath(import.meta.url)), 'organize-worker.ts');
 
@@ -1012,101 +1010,85 @@ function refreshStatusPayload(): {
   };
 }
 
-/** Everything currently running, for a global "what's running" indicator. scan/sync/refresh come from
- * the JobService; organize is still on its own child-process path so it's folded in here. */
+/** Everything currently running, for a global "what's running" indicator. All four job types (scan,
+ * sync, organize, refresh) now run through the JobService. */
 function activeJobs(): Array<{ type: string; phase: string; done: number; total: number }> {
-  const out = jobs.active().map((j) => ({ type: j.type, phase: j.phase, done: j.done, total: j.total }));
-  if (organizeJob.state === 'running') out.push({ type: 'organize', phase: organizeJob.phase, done: organizeJob.done, total: organizeJob.total });
-  return out;
+  return jobs.active().map((j) => ({ type: j.type, phase: j.phase, done: j.done, total: j.total }));
 }
 
 /**
- * Start the organize copy (the payoff). Spawns the reorg as a CHILD PROCESS of this server so the long
- * file copy runs isolated (killable, non-blocking) and streams progress back over stdout. Originals are
- * never touched — the worker uses executePlan with the dest-outside-source guard.
+ * The 'organize' job handler. Spawns the reorg as a CHILD PROCESS so the long copy runs isolated and
+ * killable (ctx.onCancel → child.kill); progress streams back over stdout. Originals are never touched —
+ * the worker uses executePlan with the dest-outside-source guard.
  */
-function startOrganize(source: string, dest: string, presetKey: string, writeTags: boolean): void {
-  if (organizeJob.state === 'running') return;
-  organizeJob = { state: 'running', source, dest, phase: 'starting worker', done: 0, total: 0, startedAt: Date.now() };
-
-  const child = spawn(
-    process.execPath,
-    ['--import', 'tsx', WORKER, source, dest, presetKey, String(writeTags)],
-    { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] },
-  );
-  organizeChild = child;
-  organizeJob.pid = child.pid;
-
-  let buf = '';
-  child.stdout.on('data', (d: Buffer) => {
-    buf += d.toString();
-    let nl: number;
-    while ((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line) continue;
-      let msg: Record<string, unknown>;
-      try {
-        msg = JSON.parse(line) as Record<string, unknown>;
-      } catch {
-        continue; // ignore any non-JSON noise from libraries
+function organizeHandler(ctx: JobCtx): Promise<unknown> {
+  const { source, dest, preset, writeTags } = ctx.params as { source: string; dest: string; preset: string; writeTags: boolean };
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--import', 'tsx', WORKER, source, dest, preset, String(writeTags)], {
+      cwd: process.cwd(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    ctx.onCancel(() => child.kill());
+    let result: unknown = null;
+    let stderr = '';
+    let buf = '';
+    ctx.progress(0, 0, 'starting worker');
+    child.stdout.on('data', (d: Buffer) => {
+      buf += d.toString();
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let msg: Record<string, unknown>;
+        try {
+          msg = JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          continue; // non-JSON library noise
+        }
+        if (msg.type === 'plan') ctx.progress(0, Number(msg.actions ?? 0), 'copying');
+        else if (msg.type === 'progress') ctx.progress(Number(msg.done ?? 0), Number(msg.total ?? 0), typeof msg.phase === 'string' ? msg.phase : 'copying');
+        else if (msg.type === 'done') result = { copied: msg.copied, skipped: msg.skipped, failed: msg.failed, tagged: msg.tagged, bytes: msg.bytes, dest };
+        else if (msg.type === 'error') reject(new Error(String(msg.message ?? 'worker error')));
       }
-      if (msg.type === 'plan') {
-        organizeJob.total = Number(msg.actions ?? organizeJob.total);
-        organizeJob.phase = 'copying';
-      } else if (msg.type === 'progress') {
-        organizeJob.done = Number(msg.done ?? organizeJob.done);
-        organizeJob.total = Number(msg.total ?? organizeJob.total);
-        if (typeof msg.phase === 'string') organizeJob.phase = msg.phase;
-        else organizeJob.phase = 'copying';
-      } else if (msg.type === 'done') {
-        organizeJob = {
-          ...organizeJob,
-          state: 'done',
-          phase: 'done',
-          result: { copied: msg.copied, skipped: msg.skipped, failed: msg.failed, tagged: msg.tagged, bytes: msg.bytes, dest },
-          finishedAt: Date.now(),
-        };
-      } else if (msg.type === 'error') {
-        organizeJob = { ...organizeJob, state: 'error', error: String(msg.message ?? 'worker error'), finishedAt: Date.now() };
-      }
-    }
-  });
-
-  let stderr = '';
-  child.stderr.on('data', (d: Buffer) => {
-    stderr += d.toString();
-  });
-  child.on('error', (e) => {
-    organizeJob = { ...organizeJob, state: 'error', error: e.message, finishedAt: Date.now() };
-    organizeChild = null;
-  });
-  child.on('exit', (code, signal) => {
-    organizeChild = null;
-    if (organizeJob.state === 'running') {
-      // exited without a terminal message
-      if (signal) {
-        organizeJob = { ...organizeJob, state: 'cancelled', phase: 'cancelled', finishedAt: Date.now() };
-      } else {
-        organizeJob = {
-          ...organizeJob,
-          state: code === 0 ? 'done' : 'error',
-          phase: 'exited',
-          ...(code === 0 ? {} : { error: stderr.trim().slice(-500) || `worker exited with code ${code}` }),
-          finishedAt: Date.now(),
-        };
-      }
-    }
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
+    child.on('error', (e) => reject(e));
+    child.on('exit', (code, signal) => {
+      if (signal) resolve(result ?? { dest }); // killed (cancelled) — JobService marks it cancelled
+      else if (code === 0) resolve(result ?? { copied: 0, dest });
+      else reject(new Error(stderr.trim().slice(-500) || `worker exited with code ${code}`));
+    });
   });
 }
 
-/** Stop a running organize child process. */
-function cancelOrganize(): boolean {
-  if (organizeChild && organizeJob.state === 'running') {
-    organizeChild.kill();
-    return true;
-  }
-  return false;
+/** Map the latest 'organize' job to the OrganizeStatus shape the UI expects. */
+function organizeStatusPayload(): {
+  state: 'idle' | 'running' | 'done' | 'error' | 'cancelled';
+  source?: string;
+  dest?: string;
+  phase: string;
+  done: number;
+  total: number;
+  result?: unknown;
+  error?: string;
+} {
+  const j = jobs.latest('organize');
+  if (!j) return { state: 'idle', phase: '', done: 0, total: 0 };
+  const params = j.params as { source?: string; dest?: string };
+  const state = j.state === 'running' ? 'running' : j.state === 'done' ? 'done' : j.state === 'cancelled' ? 'cancelled' : 'error';
+  return {
+    state,
+    ...(params?.source ? { source: params.source } : {}),
+    ...(params?.dest ? { dest: params.dest } : {}),
+    phase: j.phase,
+    done: j.done,
+    total: j.total,
+    ...(j.result ? { result: j.result } : {}),
+    ...(j.state === 'paused' ? { error: 'interrupted by a restart' } : j.error ? { error: j.error } : {}),
+  };
 }
 
 /* =================================== read endpoints =================================== */
@@ -1532,15 +1514,15 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     const preset = String(b.preset ?? 'artist-year-album');
     const writeTags = !!b.writeTags;
     if (!source || !dest) return json(res, 400, { ok: false, error: 'need_source_and_dest' });
-    if (organizeJob.state === 'running')
-      return json(res, 409, { ok: false, error: 'organize_in_progress', job: organizeJob });
-    startOrganize(source, dest, preset, writeTags);
-    return json(res, 202, { ok: true, job: organizeJob });
+    if (jobs.latest('organize')?.state === 'running')
+      return json(res, 409, { ok: false, error: 'organize_in_progress', job: organizeStatusPayload() });
+    jobs.enqueue('organize', { source, dest, preset, writeTags });
+    return json(res, 202, { ok: true, job: organizeStatusPayload() });
   }
-  if (path === '/api/organize/status') return json(res, 200, organizeJob);
+  if (path === '/api/organize/status') return json(res, 200, organizeStatusPayload());
   if (path === '/api/organize/cancel' && method === 'POST') {
-    const ok = cancelOrganize();
-    return json(res, ok ? 200 : 409, { ok, job: organizeJob });
+    const ok = jobs.cancelType('organize');
+    return json(res, ok ? 200 : 409, { ok, job: organizeStatusPayload() });
   }
 
   // ---- sync profiles (subset → external drive) ----
@@ -1832,6 +1814,7 @@ export function start(): void {
   jobs = new JobService(db); // durable job runtime + boot recovery (orphaned 'running' → 'paused')
   jobs.register('scan', (ctx) => scanHandler(ctx));
   jobs.register('sync', (ctx) => syncHandler(db, ctx));
+  jobs.register('organize', (ctx) => organizeHandler(ctx));
   jobs.register('refresh', (ctx) => refreshHandler(db, ctx));
   const server = createServer((req, res) => {
     handle(db, req, res).catch((err) =>

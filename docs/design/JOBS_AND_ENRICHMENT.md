@@ -2,7 +2,7 @@
 
 Status: **active** · Scope: the `server2` background-job and online-enrichment subsystem · Audience: future maintainers.
 
-This reviews how long-running operations (scan, organize, drive-sync, online refresh) are run and observed, identifies where the current pattern strains, and records the chosen direction. The **resumable-enrichment ledger** (§5) and the **JobService** (§4) are both **implemented** — scan, sync and refresh now run through it; `organize` remains on its child-process path (folded into the global view).
+This reviews how long-running operations (scan, organize, drive-sync, online refresh) are run and observed, identifies where the current pattern strains, and records the chosen direction. The **resumable-enrichment ledger** (§5) and the **JobService** (§4) are both **implemented** — **all four jobs (scan, sync, organize, refresh) now run through it.** `organize` keeps its child-process worker (killed via the JobService `onCancel` hook) but is otherwise a normal handler.
 
 ---
 
@@ -45,7 +45,7 @@ Explicitly **not** problems: single-writer SQLite, lack of a queue broker, multi
 
 ## 4. JobService — durable in-process jobs on SQLite (BUILT)
 
-Implemented in `src/server2/jobs.ts`. A single `JobService` owns job lifecycle: a typed handler registry, and `jobs` / `job_items` tables so state and per-unit results survive a restart. scan/sync/refresh are migrated; `organize` keeps its child-process implementation and is surfaced in the global view. Status: one job per type at a time; jobs start immediately on enqueue (no backlog queue — matches the local-tool UX); `/api/jobs/active` powers a sidebar "what's running" indicator. Boot recovery (orphaned `running` → `paused`) and durable `job_items` (the refresh review queue survives a restart) are verified.
+Implemented in `src/server2/jobs.ts`. A single `JobService` owns job lifecycle: a typed handler registry, and `jobs` / `job_items` tables so state and per-unit results survive a restart. **All four jobs are migrated** — scan/sync/refresh run inline; `organize` runs its child-process worker inside its handler and is killed on cancel via `ctx.onCancel`. One job per type at a time; jobs start immediately on enqueue (no backlog queue — matches the local-tool UX); `/api/jobs/active` powers a sidebar "what's running" indicator. Boot recovery (orphaned `running` → `paused`) and durable `job_items` (the refresh review queue survives a restart) are verified.
 
 ```
 POST /api/jobs {type,params} ─▶ JobService ─┬─ enqueue → jobs table (state,cursor,result)
