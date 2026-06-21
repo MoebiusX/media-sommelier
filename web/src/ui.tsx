@@ -6,7 +6,7 @@ export function Icon({
   name,
   className,
 }: {
-  name: 'overview' | 'library' | 'chevron' | 'organize' | 'sync';
+  name: 'overview' | 'library' | 'chevron' | 'organize' | 'sync' | 'playlist';
   className?: string;
 }) {
   const common = {
@@ -53,6 +53,15 @@ export function Icon({
         <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
         <path d="M3 22v-6h6" />
         <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+      </svg>
+    );
+  }
+  if (name === 'playlist') {
+    return (
+      <svg {...common}>
+        <path d="M4 7h11M4 12h11M4 17h7" />
+        <circle cx="18" cy="16" r="3" />
+        <path d="M21 16V7l-3 1" />
       </svg>
     );
   }

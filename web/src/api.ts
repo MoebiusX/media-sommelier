@@ -132,6 +132,32 @@ export interface SimulateResult {
   recommended: string | null;
 }
 
+export interface PlaylistSummary {
+  id: number;
+  name: string;
+  createdAt: number;
+  trackCount: number;
+}
+export interface PlaylistTrack {
+  id: number;
+  title: string;
+  artistName: string | null;
+  album: string | null;
+  albumId: string | null;
+  path: string;
+  durationMs: number | null;
+  bitrateKbps: number | null;
+  lossless: boolean;
+  sizeBytes: number;
+  position: number;
+}
+export interface PlaylistDetail {
+  id: number;
+  name: string;
+  createdAt: number;
+  tracks: PlaylistTrack[];
+}
+
 export interface SearchResults {
   artists: Array<{ name: string; trackCount: number; albumCount: number }>;
   albums: Array<{ id: string; title: string; artistName: string; year: number | null; trackCount: number }>;
@@ -277,6 +303,17 @@ export const api = {
   artists: () => get<ArtistSummary[]>('/api/artists'),
   search: (q: string) => get<SearchResults>(`/api/search?q=${encodeURIComponent(q)}`),
   duplicates: () => get<DuplicatesResult>('/api/duplicates'),
+
+  // ---- playlists ----
+  playlists: () => get<PlaylistSummary[]>('/api/playlists'),
+  createPlaylist: (name: string) => post<{ ok: boolean; id: number }>('/api/playlists', { name }),
+  renamePlaylist: (id: number, name: string) => post<{ ok: boolean }>('/api/playlists/rename', { id, name }),
+  deletePlaylist: (id: number) => post<{ ok: boolean }>('/api/playlists/delete', { id }),
+  playlist: (id: number) => get<PlaylistDetail>(`/api/playlist?id=${id}`),
+  addToPlaylist: (b: { id: number; trackPath?: string; trackPaths?: string[]; albumId?: string }) =>
+    post<{ ok: boolean; added: number }>('/api/playlist/add', b),
+  removeFromPlaylist: (id: number, trackPath: string) =>
+    post<{ ok: boolean }>('/api/playlist/remove', { id, trackPath }),
   artist: (name: string) => get<ArtistDetail>(`/api/artist/${encodeURIComponent(name)}`),
   album: (id: string) => get<AlbumDetail>(`/api/album/${encodeURIComponent(id)}`),
   coverUrl: (albumId: string) => `/api/cover?albumId=${encodeURIComponent(albumId)}`,

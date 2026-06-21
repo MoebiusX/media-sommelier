@@ -4,13 +4,14 @@ import OverviewPage from './Overview';
 import Library, { type LibraryView } from './Library';
 import Organize from './Organize';
 import Drives from './Drives';
+import Playlists from './Playlists';
 import SourceBar from './SourceBar';
 import { Icon } from './ui';
 import { PlayerProvider } from './player';
 import PlayerBar from './PlayerBar';
 import CommandPalette from './CommandPalette';
 
-type Tab = 'overview' | 'library' | 'organize' | 'sync';
+type Tab = 'overview' | 'library' | 'organize' | 'sync' | 'playlists';
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('organize');
@@ -107,7 +108,7 @@ export default function App() {
     if (r.path) setSource(r.path);
   }
 
-  const navItem = (id: Tab, icon: 'overview' | 'library' | 'organize' | 'sync', label: string) => (
+  const navItem = (id: Tab, icon: 'overview' | 'library' | 'organize' | 'sync' | 'playlist', label: string) => (
     <div
       className={'nav-item' + (tab === id ? ' active' : '')}
       onClick={() => {
@@ -139,6 +140,7 @@ export default function App() {
 
         {navItem('organize', 'organize', 'Organize')}
         {navItem('library', 'library', 'Library')}
+        {navItem('playlists', 'playlist', 'Playlists')}
         {navItem('sync', 'sync', 'Sync')}
         {navItem('overview', 'overview', 'Overview')}
 
@@ -180,7 +182,7 @@ export default function App() {
 
       <main className="main">
         <div className="main-inner">
-          {tab !== 'organize' && tab !== 'sync' && (
+          {tab !== 'organize' && tab !== 'sync' && tab !== 'playlists' && (
             <SourceBar
               source={source}
               setSource={setSource}
@@ -195,6 +197,8 @@ export default function App() {
             <Library key={refreshKey} view={libView} navigate={navLibrary} />
           ) : tab === 'sync' ? (
             <Drives onBrowseLibrary={() => navLibrary({ kind: 'artists' })} />
+          ) : tab === 'playlists' ? (
+            <Playlists />
           ) : (
             <OverviewPage key={refreshKey} onArtist={gotoArtist} />
           )}

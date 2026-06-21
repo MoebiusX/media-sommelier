@@ -99,6 +99,19 @@ export function openDb(dbPath: string = DB_PATH): Database.Database {
       score       REAL,
       coverState  TEXT                    -- 'found' | 'none' (Cover Art Archive), NULL until checked
     );
+    -- Listening playlists. Tracks are referenced by PATH (stable across re-ingest; track ids are not),
+    -- so a playlist survives a re-scan; entries for deleted files simply drop out of the join.
+    CREATE TABLE IF NOT EXISTS playlists (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      name      TEXT    NOT NULL,
+      createdAt INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS playlist_tracks (
+      playlistId INTEGER NOT NULL,
+      trackPath  TEXT    NOT NULL,
+      position   INTEGER NOT NULL,
+      PRIMARY KEY (playlistId, trackPath)
+    );
   `);
   return db;
 }
@@ -1512,6 +1525,99 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     return json(res, 202, { ok: true, job: syncStatusPayload() });
   }
   if (path === '/api/profile/sync/status') return json(res, 200, syncStatusPayload());
+
+  // ---- listening playlists ----
+  if (path === '/api/playlists' && method === 'GET') {
+    return json(
+      res,
+      200,
+      db
+        .prepare(
+          `SELECT p.id, p.name, p.createdAt,
+            (SELECT COUNT(*) FROM playlist_tracks pt JOIN tracks t ON t.path = pt.trackPath WHERE pt.playlistId = p.id) AS trackCount
+           FROM playlists p ORDER BY p.createdAt ASC, p.id ASC`,
+        )
+        .all(),
+    );
+  }
+  if (path === '/api/playlists' && method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name ?? '').trim();
+    if (!name) return json(res, 400, { ok: false, error: 'no_name' });
+    const info = db.prepare('INSERT INTO playlists(name, createdAt) VALUES(?,?)').run(name, Date.now());
+    return json(res, 200, { ok: true, id: Number(info.lastInsertRowid) });
+  }
+  if (path === '/api/playlists/rename' && method === 'POST') {
+    const b = await readBody(req);
+    const id = Number(b.id);
+    const name = String(b.name ?? '').trim();
+    if (!id || !name) return json(res, 400, { ok: false, error: 'need_id_and_name' });
+    db.prepare('UPDATE playlists SET name=? WHERE id=?').run(name, id);
+    return json(res, 200, { ok: true });
+  }
+  if (path === '/api/playlists/delete' && method === 'POST') {
+    const b = await readBody(req);
+    const id = Number(b.id);
+    if (!id) return json(res, 400, { ok: false, error: 'no_id' });
+    db.prepare('DELETE FROM playlist_tracks WHERE playlistId=?').run(id);
+    db.prepare('DELETE FROM playlists WHERE id=?').run(id);
+    return json(res, 200, { ok: true });
+  }
+  if (path === '/api/playlist' && method === 'GET') {
+    const id = Number(url.searchParams.get('id'));
+    const p = db.prepare('SELECT id, name, createdAt FROM playlists WHERE id=?').get(id) as
+      | { id: number; name: string; createdAt: number }
+      | undefined;
+    if (!p) return json(res, 404, { ok: false, error: 'playlist_not_found' });
+    const tracks = db
+      .prepare(
+        `SELECT t.id, t.title, t.artistName, t.album, t.albumId, t.path, t.durationMs, t.bitrateKbps, t.lossless, t.sizeBytes, pt.position
+         FROM playlist_tracks pt JOIN tracks t ON t.path = pt.trackPath
+         WHERE pt.playlistId = ? ORDER BY pt.position ASC`,
+      )
+      .all(id) as Array<{ lossless: number; [k: string]: unknown }>;
+    return json(res, 200, { ...p, tracks: tracks.map((t) => ({ ...t, lossless: t.lossless === 1 })) });
+  }
+  if (path === '/api/playlist/add' && method === 'POST') {
+    const b = await readBody(req);
+    const id = Number(b.id);
+    if (!id) return json(res, 400, { ok: false, error: 'no_id' });
+    // collect paths: explicit trackPath(s), or every track of an album
+    let paths: string[] = [];
+    if (b.albumId) {
+      paths = (db.prepare('SELECT path FROM tracks WHERE albumId=? ORDER BY COALESCE(discNo,1), COALESCE(trackNo,9999)').all(String(b.albumId)) as Array<{ path: string }>).map((r) => r.path);
+    } else if (Array.isArray(b.trackPaths)) {
+      paths = (b.trackPaths as unknown[]).map(String);
+    } else if (b.trackPath) {
+      paths = [String(b.trackPath)];
+    }
+    if (paths.length === 0) return json(res, 400, { ok: false, error: 'no_tracks' });
+    let pos = (db.prepare('SELECT COALESCE(MAX(position),-1) m FROM playlist_tracks WHERE playlistId=?').get(id) as { m: number }).m;
+    const ins = db.prepare('INSERT OR IGNORE INTO playlist_tracks(playlistId, trackPath, position) VALUES(?,?,?)');
+    let added = 0;
+    const tx = db.transaction(() => {
+      for (const p of paths) added += ins.run(id, p, ++pos).changes;
+    });
+    tx();
+    return json(res, 200, { ok: true, added });
+  }
+  if (path === '/api/playlist/remove' && method === 'POST') {
+    const b = await readBody(req);
+    const id = Number(b.id);
+    if (!id || !b.trackPath) return json(res, 400, { ok: false, error: 'need_id_and_trackPath' });
+    db.prepare('DELETE FROM playlist_tracks WHERE playlistId=? AND trackPath=?').run(id, String(b.trackPath));
+    return json(res, 200, { ok: true });
+  }
+  if (path === '/api/playlist/reorder' && method === 'POST') {
+    const b = await readBody(req);
+    const id = Number(b.id);
+    const order = Array.isArray(b.trackPaths) ? (b.trackPaths as unknown[]).map(String) : [];
+    if (!id || order.length === 0) return json(res, 400, { ok: false, error: 'need_id_and_order' });
+    const upd = db.prepare('UPDATE playlist_tracks SET position=? WHERE playlistId=? AND trackPath=?');
+    const tx = db.transaction(() => order.forEach((p, i) => upd.run(i, id, p)));
+    tx();
+    return json(res, 200, { ok: true });
+  }
 
   // ---- online refresh (metadata + cover) ----
   if (path === '/api/album/refresh' && method === 'POST') {

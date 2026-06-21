@@ -875,12 +875,46 @@ body {
 }
 .trk {
   display: grid;
-  grid-template-columns: 36px 1fr 90px 70px;
+  grid-template-columns: 36px 1fr 90px 70px 30px;
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
   font-size: 13.5px;
   border-top: 1px solid var(--border-soft);
+}
+.pl-add {
+  opacity: 0.32;
+  font-size: 15px;
+  line-height: 1;
+}
+.trk:hover .pl-add {
+  opacity: 1;
+}
+.pl-trk {
+  grid-template-columns: 36px 1fr 90px 70px 30px;
+}
+.pl-remove {
+  font-size: 12px;
+}
+.pl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.pl-head .page-title {
+  margin: 0;
+  cursor: text;
+}
+.pl-name-input {
+  font-size: 22px;
+  font-weight: 650;
+  max-width: 420px;
+}
+.pl-actions {
+  display: flex;
+  gap: 10px;
 }
 .trk:first-child {
   border-top: none;

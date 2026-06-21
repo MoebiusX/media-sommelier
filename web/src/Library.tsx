@@ -8,6 +8,7 @@ import {
   type ArtistDetail,
   type ArtistSummary,
   type ProfileSummary,
+  type PlaylistSummary,
   type RefreshPreview,
 } from './api';
 import { Cover, ErrorState, FlagBadges, Icon, Loading } from './ui';
@@ -271,6 +272,78 @@ function AddToProfileButton({ albumId }: { albumId: string }) {
               {profiles.length === 0 && <div className="atp-item muted">No profiles yet</div>}
               <div className="atp-item new" onClick={() => void createAndAdd()}>
                 + New profile…
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Add-to-playlist dropdown ---------------- */
+function AddToPlaylistButton({ albumId, trackPath, compact }: { albumId?: string; trackPath?: string; compact?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [lists, setLists] = useState<PlaylistSummary[] | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const payload = albumId ? { albumId } : trackPath ? { trackPath } : {};
+
+  async function toggle() {
+    if (!open) {
+      setLists(null);
+      try {
+        setLists(await api.playlists());
+      } catch {
+        setLists([]);
+      }
+    }
+    setOpen((v) => !v);
+  }
+  function flash(name: string) {
+    setOpen(false);
+    setMsg(`Added to ${name}`);
+    setTimeout(() => setMsg(null), 2200);
+  }
+  async function add(id: number, name: string) {
+    await api.addToPlaylist({ id, ...payload });
+    flash(name);
+  }
+  async function createAndAdd() {
+    const name = window.prompt('New playlist name:')?.trim();
+    if (!name) return;
+    const r = await api.createPlaylist(name);
+    await api.addToPlaylist({ id: r.id, ...payload });
+    flash(name);
+  }
+
+  return (
+    <div className="atp">
+      <button
+        className={compact ? 'icon-btn pl-add' : 'btn ghost'}
+        onClick={(e) => {
+          e.stopPropagation();
+          void toggle();
+        }}
+        title="Add to playlist"
+      >
+        {compact ? '＋' : '+ Add to playlist ▾'}
+      </button>
+      {msg && <span className="ok-text atp-msg">{msg}</span>}
+      {open && (
+        <div className="atp-menu" onClick={(e) => e.stopPropagation()}>
+          {lists === null ? (
+            <div className="atp-item muted">Loading…</div>
+          ) : (
+            <>
+              {lists.map((p) => (
+                <div key={p.id} className="atp-item" onClick={() => void add(p.id, p.name)}>
+                  <span>{p.name}</span>
+                  <span className="muted">{fmtInt(p.trackCount)}</span>
+                </div>
+              ))}
+              {lists.length === 0 && <div className="atp-item muted">No playlists yet</div>}
+              <div className="atp-item new" onClick={() => void createAndAdd()}>
+                + New playlist…
               </div>
             </>
           )}
@@ -561,6 +634,7 @@ function AlbumPage({
                   </svg>
                   Play album
                 </button>
+                <AddToPlaylistButton albumId={data.id} />
                 <AddToProfileButton albumId={data.id} />
                 <button
                   className="btn ghost"
@@ -635,6 +709,7 @@ function AlbumPage({
                         {t.lossless ? 'FLAC' : t.bitrateKbps ? `${t.bitrateKbps} kbps` : ''}
                       </div>
                       <div className="meta">{fmtDuration(t.durationMs)}</div>
+                      <AddToPlaylistButton trackPath={t.path} compact />
                     </div>
                   );
                 })}
