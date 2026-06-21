@@ -132,6 +132,46 @@ export interface SimulateResult {
   recommended: string | null;
 }
 
+export interface ProfileSummary {
+  id: number;
+  name: string;
+  target: string;
+  preset: string;
+  createdAt: number;
+  lastSyncAt: number | null;
+  albumCount: number;
+  trackCount: number;
+  bytes: number;
+}
+
+export interface ProfileAlbum {
+  id: string;
+  title: string;
+  artistName: string;
+  year: number | null;
+  trackCount: number;
+  sizeBytes: number;
+  lossless: boolean;
+  coverPath: string | null;
+}
+
+export interface ProfileDetail extends ProfileSummary {
+  albums: ProfileAlbum[];
+  formats: Record<string, number>;
+  riskTracks: number;
+}
+
+export interface SyncStatus {
+  state: 'idle' | 'running' | 'done' | 'error' | 'cancelled';
+  profileId?: number;
+  dest?: string;
+  phase: string;
+  done: number;
+  total: number;
+  result?: { copied: number; skipped: number; failed: number; bytes: number; dest: string };
+  error?: string;
+}
+
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) {
@@ -184,6 +224,21 @@ export const api = {
     post<{ ok: boolean }>('/api/organize/run', b),
   organizeStatus: () => get<OrganizeStatus>('/api/organize/status'),
   cancelOrganize: () => post<{ ok: boolean }>('/api/organize/cancel', {}),
+
+  // ---- sync profiles ----
+  profiles: () => get<ProfileSummary[]>('/api/profiles'),
+  createProfile: (b: { name: string; target?: string; preset?: string }) =>
+    post<{ ok: boolean; id: number }>('/api/profiles', b),
+  updateProfile: (b: { id: number; name?: string; target?: string; preset?: string }) =>
+    post<{ ok: boolean }>('/api/profiles/update', b),
+  deleteProfile: (id: number) => post<{ ok: boolean }>('/api/profiles/delete', { id }),
+  profile: (id: number) => get<ProfileDetail>(`/api/profile?id=${id}`),
+  addToProfile: (b: { id: number; albumId?: string; artist?: string }) =>
+    post<{ ok: boolean; added: number }>('/api/profile/add', b),
+  removeFromProfile: (b: { id: number; albumId: string }) =>
+    post<{ ok: boolean }>('/api/profile/remove', b),
+  syncProfile: (id: number) => post<{ ok: boolean; error?: string; job: SyncStatus }>('/api/profile/sync', { id }),
+  syncStatus: () => get<SyncStatus>('/api/profile/sync/status'),
 };
 
 // ---- formatting helpers ----
@@ -205,4 +260,16 @@ export function fmtRuntime(ms: number): string {
 
 export function fmtInt(n: number): string {
   return n.toLocaleString('en-US');
+}
+
+export function fmtBytes(n: number): string {
+  if (!n || n < 0) return '0 B';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < u.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${u[i]}`;
 }

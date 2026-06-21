@@ -3,12 +3,13 @@ import { api, type ScanStatus } from './api';
 import OverviewPage from './Overview';
 import Library, { type LibraryView } from './Library';
 import Organize from './Organize';
+import Drives from './Drives';
 import SourceBar from './SourceBar';
 import { Icon } from './ui';
 import { PlayerProvider } from './player';
 import PlayerBar from './PlayerBar';
 
-type Tab = 'overview' | 'library' | 'organize';
+type Tab = 'overview' | 'library' | 'organize' | 'sync';
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('organize');
@@ -75,7 +76,7 @@ export default function App() {
     if (r.path) setSource(r.path);
   }
 
-  const navItem = (id: Tab, icon: 'overview' | 'library' | 'organize', label: string) => (
+  const navItem = (id: Tab, icon: 'overview' | 'library' | 'organize' | 'sync', label: string) => (
     <div
       className={'nav-item' + (tab === id ? ' active' : '')}
       onClick={() => {
@@ -102,6 +103,7 @@ export default function App() {
 
         {navItem('organize', 'organize', 'Organize')}
         {navItem('library', 'library', 'Library')}
+        {navItem('sync', 'sync', 'Sync')}
         {navItem('overview', 'overview', 'Overview')}
 
         <div className="sidebar-spacer" />
@@ -115,7 +117,7 @@ export default function App() {
 
       <main className="main">
         <div className="main-inner">
-          {tab !== 'organize' && (
+          {tab !== 'organize' && tab !== 'sync' && (
             <SourceBar
               source={source}
               setSource={setSource}
@@ -128,6 +130,8 @@ export default function App() {
             <Organize source={source} setSource={setSource} onOpenResult={openFolder} />
           ) : tab === 'library' ? (
             <Library key={refreshKey} view={libView} navigate={navLibrary} />
+          ) : tab === 'sync' ? (
+            <Drives onBrowseLibrary={() => navLibrary({ kind: 'artists' })} />
           ) : (
             <OverviewPage key={refreshKey} onArtist={gotoArtist} />
           )}

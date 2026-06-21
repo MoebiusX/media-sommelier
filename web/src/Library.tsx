@@ -7,6 +7,7 @@ import {
   type AlbumSummary,
   type ArtistDetail,
   type ArtistSummary,
+  type ProfileSummary,
 } from './api';
 import { Cover, ErrorState, FlagBadges, Icon, Loading } from './ui';
 import { usePlayer, type PlayerTrack } from './player';
@@ -214,6 +215,70 @@ function ArtistPage({ name, navigate }: { name: string; navigate: (v: LibraryVie
   );
 }
 
+/* ---------------- Add-to-profile dropdown (album → drive-sync profile) ---------------- */
+function AddToProfileButton({ albumId }: { albumId: string }) {
+  const [open, setOpen] = useState(false);
+  const [profiles, setProfiles] = useState<ProfileSummary[] | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function toggle() {
+    if (!open) {
+      setProfiles(null);
+      try {
+        setProfiles(await api.profiles());
+      } catch {
+        setProfiles([]);
+      }
+    }
+    setOpen((v) => !v);
+  }
+  function flash(name: string) {
+    setOpen(false);
+    setMsg(`Added to ${name}`);
+    setTimeout(() => setMsg(null), 2500);
+  }
+  async function add(id: number, name: string) {
+    await api.addToProfile({ id, albumId });
+    flash(name);
+  }
+  async function createAndAdd() {
+    const name = window.prompt('New profile name (e.g. Car, Gym, Audiobooks):')?.trim();
+    if (!name) return;
+    const r = await api.createProfile({ name });
+    await api.addToProfile({ id: r.id, albumId });
+    flash(name);
+  }
+
+  return (
+    <div className="atp">
+      <button className="btn ghost" onClick={() => void toggle()}>
+        + Add to profile ▾
+      </button>
+      {msg && <span className="ok-text atp-msg">{msg}</span>}
+      {open && (
+        <div className="atp-menu">
+          {profiles === null ? (
+            <div className="atp-item muted">Loading…</div>
+          ) : (
+            <>
+              {profiles.map((p) => (
+                <div key={p.id} className="atp-item" onClick={() => void add(p.id, p.name)}>
+                  <span>{p.name}</span>
+                  <span className="muted">{fmtInt(p.albumCount)} albums</span>
+                </div>
+              ))}
+              {profiles.length === 0 && <div className="atp-item muted">No profiles yet</div>}
+              <div className="atp-item new" onClick={() => void createAndAdd()}>
+                + New profile…
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- Album page (tracks) ---------------- */
 function AlbumPage({
   id,
@@ -344,6 +409,7 @@ function AlbumPage({
                   </svg>
                   Play album
                 </button>
+                <AddToProfileButton albumId={data.id} />
               </div>
               {data.evidence.length > 0 && (
                 <ul className="evidence">

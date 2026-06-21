@@ -23,8 +23,12 @@ import {
   walkToArray,
   reconstruct,
   planOrganize,
+  executePlan,
+  sanitizeSegment,
   ORGANIZE_PRESETS,
   type OrganizePlan,
+  type OrganizeAction,
+  type TrackTags,
 } from '../engine/index.js';
 import { ingest } from './ingest.js';
 
@@ -44,6 +48,26 @@ export function openDb(dbPath: string = DB_PATH): Database.Database {
   // Minimal bootstrap table so a fresh DB is queryable; real schema lands in the ingest stage.
   db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
   db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '0')`).run();
+  // Sync profiles: a named subset of the library mirrored to an external drive. Independent of the
+  // derived tracks/albums tables (ingest's clearAll never touches these). albumId is a plain TEXT join
+  // (NOT a foreign key) so re-ingest can freely DELETE+repopulate albums without a constraint error;
+  // album ids are deterministic slugs, so a saved profile re-joins after a re-scan.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS profiles (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT    NOT NULL,
+      target     TEXT    NOT NULL DEFAULT '',
+      preset     TEXT    NOT NULL DEFAULT 'artist-year-album',
+      createdAt  INTEGER NOT NULL DEFAULT 0,
+      lastSyncAt INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS profile_members (
+      profileId INTEGER NOT NULL,
+      albumId   TEXT    NOT NULL,
+      addedAt   INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (profileId, albumId)
+    );
+  `);
   return db;
 }
 
@@ -140,6 +164,7 @@ interface Job {
   state: 'idle' | 'running' | 'done' | 'error' | 'cancelled';
   source?: string;
   dest?: string;
+  profileId?: number;
   phase: string;
   done: number;
   total: number;
@@ -153,6 +178,7 @@ interface Job {
 let scanJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
 let organizeJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
 let organizeChild: ChildProcess | null = null;
+let syncJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
 const WORKER = join(dirname(fileURLToPath(import.meta.url)), 'organize-worker.ts');
 
 /** Start indexing a folder into SQLite (point-at-a-folder control). No-op if one is already running. */
@@ -304,6 +330,197 @@ async function simulateSchemes(
     .filter((s) => s.key !== 'flat')
     .sort((a, b) => a.sparseFolders - b.sparseFolders || a.folders - b.folders);
   return { source, schemes, recommended: ranked[0]?.key ?? null };
+}
+
+/* ===================== sync profiles (a hand-picked subset → an external drive) =====================
+ * A profile is a set of album ids + a target drive + a naming scheme. Sync is ADDITIVE: it copies the
+ * profile's tracks to the drive (hash-verified + idempotent via executePlan — existing files are
+ * skipped) and never deletes. Source media is only read. Album ids are deterministic slugs, so a saved
+ * profile survives a re-ingest. */
+
+interface ProfileRow {
+  id: number;
+  name: string;
+  target: string;
+  preset: string;
+  createdAt: number;
+  lastSyncAt: number | null;
+}
+
+interface SyncTrackRow {
+  path: string;
+  title: string;
+  trackArtist: string | null;
+  trackNo: number | null;
+  discNo: number | null;
+  albumId: string;
+  albumArtist: string;
+  albumTitle: string;
+  year: number | null;
+  discCount: number;
+  sizeBytes: number;
+}
+
+const extLower = (p: string): string => {
+  const i = p.lastIndexOf('.');
+  return i >= 0 ? p.slice(i + 1).toLowerCase() : '';
+};
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/** Formats most car heads / basic players can't decode — surfaced as a warning (still copied as-is). */
+const PLAYBACK_RISK_EXT = new Set(['flac', 'ape', 'wav', 'aiff', 'aif', 'alac', 'wv', 'tta', 'tak', 'ogg', 'opus']);
+
+/** Render a destination relative path for one track under a naming template (mirrors the engine renderer). */
+function renderProfilePath(tpl: string, r: SyncTrackRow): string {
+  const multiDisc = (r.discCount ?? 1) > 1;
+  const vals: Record<string, string> = {
+    albumArtist: sanitizeSegment(r.albumArtist || 'Unknown Artist'),
+    artist: sanitizeSegment(r.trackArtist || r.albumArtist || 'Unknown Artist'),
+    album: sanitizeSegment(r.albumTitle || 'Unknown Album'),
+    title: sanitizeSegment(r.title || `Track ${r.trackNo ?? ''}`),
+    year: r.year ? String(r.year) : '',
+    disc: multiDisc ? `Disc ${r.discNo ?? 1}` : '',
+    track: pad2(r.trackNo ?? 0),
+  };
+  const rendered = tpl.replace(/\{(\w+)\}/g, (_, k: string) => (k in vals ? vals[k]! : ''));
+  const segs = rendered.split('/').map((s) => s.replace(/\s{2,}/g, ' ').trim()).filter((s) => s.length > 0);
+  if (multiDisc && !tpl.includes('{disc}') && segs.length > 0) {
+    const file = segs.pop()!;
+    segs.push(`Disc ${r.discNo ?? 1}`, file);
+  }
+  return segs.join('/');
+}
+
+/** Every track belonging to a profile's member albums, ordered for a tidy copy. */
+function profileTracks(db: Database.Database, profileId: number): SyncTrackRow[] {
+  return db
+    .prepare(
+      `SELECT t.path, t.title, t.artistName AS trackArtist, t.trackNo, t.discNo, t.sizeBytes,
+              a.id AS albumId, a.artistName AS albumArtist, a.title AS albumTitle, a.year, a.discCount
+       FROM tracks t JOIN albums a ON a.id = t.albumId
+       WHERE t.albumId IN (SELECT albumId FROM profile_members WHERE profileId = ?)
+       ORDER BY a.artistName, a.year, a.title, COALESCE(t.discNo,1), COALESCE(t.trackNo,9999), t.title`,
+    )
+    .all(profileId) as SyncTrackRow[];
+}
+
+/** Build an additive copy plan (no deletes) from a profile's tracks to its target drive. */
+function buildSyncPlan(rows: SyncTrackRow[], target: string, preset: string): OrganizePlan {
+  const template = ORGANIZE_PRESETS[preset]?.template ?? ORGANIZE_PRESETS['artist-year-album']!.template;
+  const actions: OrganizeAction[] = [];
+  const skipped: OrganizePlan['skipped'] = [];
+  const destSeen = new Map<string, string[]>();
+  for (const r of rows) {
+    const rel = renderProfilePath(template, r);
+    if (!rel) {
+      skipped.push({ candidateId: r.albumId, reason: 'template produced an empty path' });
+      continue;
+    }
+    const ext = extLower(r.path);
+    const destRelPath = rel + (ext ? `.${ext}` : '');
+    const destPath = `${target}/${destRelPath}`;
+    const tags: TrackTags = {
+      title: r.title,
+      album: r.albumTitle,
+      albumArtist: r.albumArtist,
+      artist: r.trackArtist || r.albumArtist,
+      ...(r.year != null ? { year: r.year } : {}),
+      trackNo: r.trackNo ?? 0,
+      discNo: r.discNo ?? 1,
+      discCount: r.discCount ?? 1,
+    };
+    actions.push({ candidateId: r.albumId, sourcePath: r.path, destRelPath, destPath, tags });
+    if (!destSeen.has(destRelPath)) destSeen.set(destRelPath, []);
+    destSeen.get(destRelPath)!.push(r.path);
+  }
+  const collisions = [...destSeen.entries()]
+    .filter(([, s]) => s.length > 1)
+    .map(([destRelPath, sources]) => ({ destRelPath, sources }));
+  return { destRoot: target, actions, collisions, skipped };
+}
+
+/** Format breakdown + playback-risk count for a set of tracks (the car-compat warning). */
+function formatBreakdown(rows: SyncTrackRow[]): { formats: Record<string, number>; riskTracks: number } {
+  const formats: Record<string, number> = {};
+  let riskTracks = 0;
+  for (const r of rows) {
+    const e = extLower(r.path) || 'other';
+    formats[e] = (formats[e] ?? 0) + 1;
+    if (PLAYBACK_RISK_EXT.has(e)) riskTracks++;
+  }
+  return { formats, riskTracks };
+}
+
+/** Profile list with rolled-up album/track/byte counts. */
+function listProfiles(db: Database.Database): unknown {
+  return db
+    .prepare(
+      `SELECT p.id, p.name, p.target, p.preset, p.createdAt, p.lastSyncAt,
+        (SELECT COUNT(*) FROM profile_members m WHERE m.profileId = p.id) AS albumCount,
+        (SELECT COUNT(*) FROM tracks t WHERE t.albumId IN (SELECT albumId FROM profile_members WHERE profileId = p.id)) AS trackCount,
+        (SELECT COALESCE(SUM(sizeBytes),0) FROM tracks t WHERE t.albumId IN (SELECT albumId FROM profile_members WHERE profileId = p.id)) AS bytes
+       FROM profiles p ORDER BY p.createdAt ASC, p.id ASC`,
+    )
+    .all();
+}
+
+/** One profile with its member albums, format breakdown and total size. */
+function profileDetail(db: Database.Database, id: number): unknown {
+  const p = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id) as ProfileRow | undefined;
+  if (!p) return null;
+  const albums = db
+    .prepare(
+      `SELECT a.id, a.title, a.artistName, a.year, a.trackCount, a.sizeBytes, a.lossless, a.coverPath
+       FROM profile_members m JOIN albums a ON a.id = m.albumId
+       WHERE m.profileId = ? ORDER BY a.artistName, a.year, a.title`,
+    )
+    .all(id) as Array<{ sizeBytes: number; lossless: number; [k: string]: unknown }>;
+  const rows = profileTracks(db, id);
+  const { formats, riskTracks } = formatBreakdown(rows);
+  const bytes = albums.reduce((n, a) => n + (a.sizeBytes ?? 0), 0);
+  return {
+    ...p,
+    albums: albums.map((a) => ({ ...a, lossless: a.lossless === 1 })),
+    trackCount: rows.length,
+    bytes,
+    formats,
+    riskTracks,
+  };
+}
+
+/** Start an additive sync of a profile to its target drive. Single in-flight job, polled by the UI. */
+function startSync(db: Database.Database, profileId: number): { ok: boolean; error?: string; job: Job } {
+  if (syncJob.state === 'running') return { ok: false, error: 'sync_in_progress', job: syncJob };
+  const prof = db.prepare('SELECT * FROM profiles WHERE id = ?').get(profileId) as ProfileRow | undefined;
+  if (!prof) return { ok: false, error: 'profile_not_found', job: syncJob };
+  if (!prof.target.trim()) return { ok: false, error: 'no_target', job: syncJob };
+  const rows = profileTracks(db, profileId);
+  if (rows.length === 0) return { ok: false, error: 'empty_profile', job: syncJob };
+  const plan = buildSyncPlan(rows, prof.target, prof.preset);
+  const libRoot = meta<{ root?: string }>(db, 'overview')?.root;
+  syncJob = { state: 'running', profileId, dest: prof.target, phase: 'copying', done: 0, total: plan.actions.length, startedAt: Date.now() };
+  void (async () => {
+    try {
+      const report = await executePlan(plan, {
+        ...(libRoot ? { sourceRoot: libRoot } : {}),
+        onProgress: (done, total) => {
+          syncJob.done = done;
+          syncJob.total = total;
+        },
+      });
+      db.prepare('UPDATE profiles SET lastSyncAt = ? WHERE id = ?').run(Date.now(), profileId);
+      syncJob = {
+        ...syncJob,
+        state: 'done',
+        phase: 'done',
+        result: { copied: report.copied, skipped: report.skipped, failed: report.failed, bytes: report.bytesCopied, dest: prof.target },
+        finishedAt: Date.now(),
+      };
+    } catch (e) {
+      syncJob = { ...syncJob, state: 'error', error: e instanceof Error ? e.message : String(e), finishedAt: Date.now() };
+    }
+  })();
+  return { ok: true, job: syncJob };
 }
 
 /**
@@ -695,6 +912,84 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     const ok = cancelOrganize();
     return json(res, ok ? 200 : 409, { ok, job: organizeJob });
   }
+
+  // ---- sync profiles (subset → external drive) ----
+  if (path === '/api/profiles' && method === 'GET') return json(res, 200, listProfiles(db));
+  if (path === '/api/profiles' && method === 'POST') {
+    const b = await readBody(req);
+    const name = String(b.name ?? '').trim();
+    if (!name) return json(res, 400, { ok: false, error: 'no_name' });
+    const info = db
+      .prepare('INSERT INTO profiles(name, target, preset, createdAt) VALUES(?,?,?,?)')
+      .run(name, String(b.target ?? '').trim(), String(b.preset ?? 'artist-year-album'), Date.now());
+    return json(res, 200, { ok: true, id: Number(info.lastInsertRowid) });
+  }
+  if (path === '/api/profiles/update' && method === 'POST') {
+    const b = await readBody(req);
+    const id = Number(b.id);
+    if (!id) return json(res, 400, { ok: false, error: 'no_id' });
+    const prof = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id) as ProfileRow | undefined;
+    if (!prof) return json(res, 404, { ok: false, error: 'profile_not_found' });
+    db.prepare('UPDATE profiles SET name=?, target=?, preset=? WHERE id=?').run(
+      b.name != null ? String(b.name).trim() || prof.name : prof.name,
+      b.target != null ? String(b.target).trim() : prof.target,
+      b.preset != null ? String(b.preset) : prof.preset,
+      id,
+    );
+    return json(res, 200, { ok: true });
+  }
+  if (path === '/api/profiles/delete' && method === 'POST') {
+    const b = await readBody(req);
+    const id = Number(b.id);
+    if (!id) return json(res, 400, { ok: false, error: 'no_id' });
+    db.prepare('DELETE FROM profile_members WHERE profileId = ?').run(id);
+    db.prepare('DELETE FROM profiles WHERE id = ?').run(id);
+    return json(res, 200, { ok: true });
+  }
+  if (path === '/api/profile' && method === 'GET') {
+    const d = profileDetail(db, Number(url.searchParams.get('id')));
+    if (!d) return json(res, 404, { ok: false, error: 'profile_not_found' });
+    return json(res, 200, d);
+  }
+  if (path === '/api/profile/add' && method === 'POST') {
+    const b = await readBody(req);
+    const id = Number(b.id);
+    if (!id) return json(res, 400, { ok: false, error: 'no_id' });
+    const now = Date.now();
+    let added = 0;
+    if (b.albumId) {
+      added = db
+        .prepare('INSERT OR IGNORE INTO profile_members(profileId, albumId, addedAt) VALUES(?,?,?)')
+        .run(id, String(b.albumId), now).changes;
+    } else if (b.artist) {
+      added = db
+        .prepare(
+          `INSERT OR IGNORE INTO profile_members(profileId, albumId, addedAt)
+           SELECT @id, a.id, @now FROM albums a
+           WHERE a.artistName = @artist
+              OR a.id IN (SELECT DISTINCT t.albumId FROM tracks t WHERE t.artistName = @artist AND t.albumId IS NOT NULL)`,
+        )
+        .run({ id, now, artist: String(b.artist) }).changes;
+    } else {
+      return json(res, 400, { ok: false, error: 'need_albumId_or_artist' });
+    }
+    return json(res, 200, { ok: true, added });
+  }
+  if (path === '/api/profile/remove' && method === 'POST') {
+    const b = await readBody(req);
+    const id = Number(b.id);
+    if (!id || !b.albumId) return json(res, 400, { ok: false, error: 'need_id_and_albumId' });
+    db.prepare('DELETE FROM profile_members WHERE profileId = ? AND albumId = ?').run(id, String(b.albumId));
+    return json(res, 200, { ok: true });
+  }
+  if (path === '/api/profile/sync' && method === 'POST') {
+    const b = await readBody(req);
+    const id = Number(b.id);
+    if (!id) return json(res, 400, { ok: false, error: 'no_id' });
+    const r = startSync(db, id);
+    return json(res, r.ok ? 202 : 409, r);
+  }
+  if (path === '/api/profile/sync/status') return json(res, 200, syncJob);
 
   // ---- read endpoints ----
   if (path === '/api/overview') return overview(db, res);
