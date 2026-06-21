@@ -36,6 +36,7 @@ import {
   type AlbumCandidate,
 } from '../engine/index.js';
 import { ingest } from './ingest.js';
+import { JobService, type JobCtx } from './jobs.js';
 
 const PORT = Number(process.env.PORT ?? 4178);
 // SECURITY: bind localhost-only by default — the API returns absolute source paths and triggers file
@@ -210,6 +211,8 @@ let scanJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
 let organizeJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
 let organizeChild: ChildProcess | null = null;
 let syncJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
+/** Durable job runtime (scan/sync/refresh). Assigned in start(); see jobs.ts. */
+let jobs: JobService;
 const WORKER = join(dirname(fileURLToPath(import.meta.url)), 'organize-worker.ts');
 
 /** Start indexing a folder into SQLite (point-at-a-folder control). No-op if one is already running. */
@@ -768,7 +771,8 @@ async function applyRefresh(
   }
 }
 
-/* ---- batch refresh: sweep the library, propose covers/metadata, the user reviews then applies ---- */
+/* ---- batch refresh: a JobService job ('refresh') that sweeps the library proposing covers/metadata.
+ * Each proposal is emitted as a durable job_item, so the review queue survives a restart. ---- */
 interface RefreshProposal {
   albumId: string;
   artistName: string;
@@ -777,64 +781,55 @@ interface RefreshProposal {
   match: { album: string; year?: number; score: number; mbid: string };
   coverFetched: boolean;
 }
-interface RefreshBatchJob {
-  state: 'idle' | 'running' | 'done' | 'error';
-  phase: string;
-  done: number;
-  total: number;
-  proposals: RefreshProposal[];
-  error?: string;
-  startedAt?: number;
-  finishedAt?: number;
-}
-let refreshJob: RefreshBatchJob = { state: 'idle', phase: '', done: 0, total: 0, proposals: [] };
-let refreshCancel = false;
 
-/**
- * Start a background sweep proposing online matches. `onlyMissing` targets albums without folder art;
- * `force` ignores the enrichment ledger and re-looks-up everything. Cache-aware via enrichOne(), so a
- * re-run only hits the network for albums not yet attempted — a cancelled/crashed sweep resumes for free.
- */
-function startRefreshBatch(db: Database.Database, opts: { onlyMissing: boolean; force?: boolean; limit?: number }): { ok: boolean; error?: string } {
-  if (refreshJob.state === 'running') return { ok: false, error: 'refresh_in_progress' };
+/** Candidate albums for a sweep: `onlyMissing` = no folder art and no existing override. */
+function selectRefreshCandidates(
+  db: Database.Database,
+  onlyMissing: boolean,
+  limit?: number,
+): Array<{ id: string; artistName: string; title: string; year: number | null; trackCount: number }> {
   const noOverride = `a.id NOT IN (SELECT albumId FROM album_overrides)`;
-  const where = opts.onlyMissing ? `WHERE ${noOverride} AND (a.coverPath IS NULL OR a.coverPath = '')` : `WHERE ${noOverride}`;
+  const where = onlyMissing ? `WHERE ${noOverride} AND (a.coverPath IS NULL OR a.coverPath = '')` : `WHERE ${noOverride}`;
   let rows = db
     .prepare(`SELECT a.id, a.artistName, a.title, a.year, a.trackCount FROM albums a ${where} ORDER BY a.trackCount DESC`)
     .all() as Array<{ id: string; artistName: string; title: string; year: number | null; trackCount: number }>;
-  if (opts.limit && opts.limit > 0) rows = rows.slice(0, opts.limit);
-  refreshCancel = false;
-  refreshJob = { state: 'running', phase: 'looking up releases', done: 0, total: rows.length, proposals: [], startedAt: Date.now() };
-  void (async () => {
-    try {
-      for (const a of rows) {
-        if (refreshCancel) break;
-        const r = await enrichOne(db, a, opts.force ?? false);
-        // Only propose if there's something to gain: a cover or a year we don't already have.
-        if (r.matched && r.match && (r.coverFetched || (r.match.year != null && r.match.year !== a.year))) {
-          refreshJob.proposals.push({
-            albumId: a.id,
-            artistName: a.artistName,
-            title: a.title,
-            year: a.year,
-            match: { album: r.match.album, ...(r.match.year != null ? { year: r.match.year } : {}), score: r.match.score, mbid: r.match.mbid },
-            coverFetched: r.coverFetched,
-          });
-        }
-        refreshJob.done++;
-      }
-      refreshJob = { ...refreshJob, state: 'done', phase: refreshCancel ? 'cancelled' : 'done', finishedAt: Date.now() };
-    } catch (e) {
-      refreshJob = { ...refreshJob, state: 'error', error: e instanceof Error ? e.message : String(e), finishedAt: Date.now() };
-    }
-  })();
-  return { ok: true };
+  if (limit && limit > 0) rows = rows.slice(0, limit);
+  return rows;
 }
 
-/** Apply the user-selected subset of batch proposals; discard the staged covers of the rest. */
+/** The 'refresh' job handler. Cache-aware via enrichOne(), so a cancelled/crashed sweep resumes for free. */
+async function refreshHandler(db: Database.Database, ctx: JobCtx): Promise<unknown> {
+  const p = ctx.params as { onlyMissing: boolean; force?: boolean; limit?: number };
+  const rows = selectRefreshCandidates(db, p.onlyMissing, p.limit);
+  ctx.progress(0, rows.length, 'looking up releases');
+  let done = 0;
+  let found = 0;
+  for (const a of rows) {
+    if (ctx.cancelled()) break;
+    const r = await enrichOne(db, a, p.force ?? false);
+    // Only propose if there's something to gain: a cover or a year we don't already have.
+    if (r.matched && r.match && (r.coverFetched || (r.match.year != null && r.match.year !== a.year))) {
+      const proposal: RefreshProposal = {
+        albumId: a.id,
+        artistName: a.artistName,
+        title: a.title,
+        year: a.year,
+        match: { album: r.match.album, ...(r.match.year != null ? { year: r.match.year } : {}), score: r.match.score, mbid: r.match.mbid },
+        coverFetched: r.coverFetched,
+      };
+      ctx.emit(proposal); // durable — survives a restart
+      found++;
+    }
+    ctx.progress(++done, rows.length, 'looking up releases');
+  }
+  return { found };
+}
+
+/** Apply the user-selected subset of proposals; discard the staged covers of the rest. */
 async function applyBatch(
   db: Database.Database,
   items: Array<{ albumId: string; title?: string; year?: number; cover?: boolean; mbid?: string }>,
+  allProposals: RefreshProposal[],
 ): Promise<number> {
   const keep = new Set(items.map((i) => i.albumId));
   for (const it of items) {
@@ -845,13 +840,45 @@ async function applyBatch(
       ...(it.mbid != null ? { mbid: it.mbid } : {}),
     });
   }
-  for (const p of refreshJob.proposals) {
-    if (!keep.has(p.albumId)) {
-      const pp = pendingCoverPath(p.albumId);
+  for (const pr of allProposals) {
+    if (!keep.has(pr.albumId)) {
+      const pp = pendingCoverPath(pr.albumId);
       if (existsSync(pp)) await unlink(pp).catch(() => {});
     }
   }
   return items.length;
+}
+
+/** Map the latest 'refresh' job (+ its durable proposals) to the shape the Overview UI expects. */
+function refreshStatusPayload(): {
+  state: 'idle' | 'running' | 'done' | 'error';
+  phase: string;
+  done: number;
+  total: number;
+  proposals: RefreshProposal[];
+  error?: string;
+} {
+  const j = jobs.latest('refresh');
+  if (!j) return { state: 'idle', phase: '', done: 0, total: 0, proposals: [] };
+  // cancelled/paused (incl. a sweep interrupted by a restart) → 'done' so the gathered review queue shows.
+  const state = j.state === 'running' ? 'running' : j.state === 'error' ? 'error' : 'done';
+  return {
+    state,
+    phase: j.phase,
+    done: j.done,
+    total: j.total,
+    proposals: jobs.items(j.id) as RefreshProposal[],
+    ...(j.error ? { error: j.error } : {}),
+  };
+}
+
+/** Everything currently running, for a global "what's running" indicator. */
+function activeJobs(): Array<{ type: string; phase: string; done: number; total: number }> {
+  const out = jobs.active().map((j) => ({ type: j.type, phase: j.phase, done: j.done, total: j.total }));
+  if (organizeJob.state === 'running') out.push({ type: 'organize', phase: organizeJob.phase, done: organizeJob.done, total: organizeJob.total });
+  if (scanJob.state === 'running') out.push({ type: 'scan', phase: scanJob.phase, done: scanJob.done, total: scanJob.total });
+  if (syncJob.state === 'running') out.push({ type: 'sync', phase: syncJob.phase, done: syncJob.done, total: syncJob.total });
+  return out;
 }
 
 /**
@@ -1373,17 +1400,17 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     return json(res, 200, { ok: true });
   }
 
-  // ---- batch refresh (library sweep → review queue) ----
+  // ---- batch refresh (library sweep → review queue), backed by the JobService ----
   if (path === '/api/refresh/start' && method === 'POST') {
     const b = await readBody(req);
-    const r = startRefreshBatch(db, {
+    jobs.enqueue('refresh', {
       onlyMissing: b.onlyMissing !== false,
       force: !!b.force,
       ...(b.limit ? { limit: Number(b.limit) } : {}),
     });
-    return json(res, r.ok ? 202 : 409, { ...r, job: refreshJob });
+    return json(res, 202, { ok: true, job: refreshStatusPayload() });
   }
-  if (path === '/api/refresh/status') return json(res, 200, refreshJob);
+  if (path === '/api/refresh/status') return json(res, 200, refreshStatusPayload());
   if (path === '/api/refresh/candidates') {
     const noOverride = `id NOT IN (SELECT albumId FROM album_overrides)`;
     const missingWhere = `${noOverride} AND (coverPath IS NULL OR coverPath = '')`;
@@ -1393,12 +1420,14 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     return json(res, 200, { missing, attempted, total });
   }
   if (path === '/api/refresh/cancel' && method === 'POST') {
-    refreshCancel = true;
+    jobs.cancelType('refresh');
     return json(res, 200, { ok: true });
   }
   if (path === '/api/refresh/apply-batch' && method === 'POST') {
     const b = await readBody(req);
     const items = Array.isArray(b.items) ? (b.items as Array<Record<string, unknown>>) : [];
+    const latest = jobs.latest('refresh');
+    const allProposals = latest ? (jobs.items(latest.id) as RefreshProposal[]) : [];
     const applied = await applyBatch(
       db,
       items.map((it) => ({
@@ -1408,9 +1437,11 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
         cover: !!it.cover,
         ...(it.mbid != null ? { mbid: String(it.mbid) } : {}),
       })),
+      allProposals,
     );
     return json(res, 200, { ok: true, applied });
   }
+  if (path === '/api/jobs/active') return json(res, 200, activeJobs());
 
   // ---- read endpoints ----
   if (path === '/api/overview') return overview(db, res);
@@ -1429,6 +1460,8 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
 
 export function start(): void {
   const db = openDb();
+  jobs = new JobService(db); // durable job runtime + boot recovery (orphaned 'running' → 'paused')
+  jobs.register('refresh', (ctx) => refreshHandler(db, ctx));
   const server = createServer((req, res) => {
     handle(db, req, res).catch((err) =>
       json(res, 500, { ok: false, error: 'internal', message: (err as Error).message }),
