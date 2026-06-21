@@ -18,6 +18,7 @@ export default function App() {
   const [source, setSource] = useState<string>(() => localStorage.getItem('somm.source') ?? '');
   const [scan, setScan] = useState<ScanStatus | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [running, setRunning] = useState<Array<{ type: string; phase: string; done: number; total: number }>>([]);
   const polling = useRef(false);
 
   useEffect(() => {
@@ -25,6 +26,22 @@ export default function App() {
       .health()
       .then((h) => setApiUp(!!h.ok))
       .catch(() => setApiUp(false));
+  }, []);
+
+  // Poll the global "what's running" view so any background job is visible from anywhere.
+  useEffect(() => {
+    let alive = true;
+    const tick = () =>
+      api
+        .activeJobs()
+        .then((j) => alive && setRunning(j))
+        .catch(() => {});
+    void tick();
+    const t = setInterval(tick, 2000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
   }, []);
 
   useEffect(() => {
@@ -107,6 +124,33 @@ export default function App() {
         {navItem('overview', 'overview', 'Overview')}
 
         <div className="sidebar-spacer" />
+        {running.length > 0 && (
+          <div className="running-box">
+            {running.map((j, i) => {
+              const label =
+                j.type === 'scan'
+                  ? 'Indexing'
+                  : j.type === 'sync'
+                    ? 'Syncing'
+                    : j.type === 'refresh'
+                      ? 'Refreshing covers'
+                      : j.type === 'organize'
+                        ? 'Organizing'
+                        : j.type;
+              return (
+                <div className="running-row" key={`${j.type}-${i}`}>
+                  <span className="spinner-sm" />
+                  <span className="running-label">{label}</span>
+                  {j.total > 0 && (
+                    <span className="running-count">
+                      {j.done.toLocaleString()}/{j.total.toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div className="sidebar-foot">
           <span className="pill">
             <span className={'dot ' + (apiUp ? 'ok' : apiUp === false ? 'down' : '')} />

@@ -207,31 +207,43 @@ interface Job {
   finishedAt?: number;
 }
 
-let scanJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
 let organizeJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
 let organizeChild: ChildProcess | null = null;
-let syncJob: Job = { state: 'idle', phase: '', done: 0, total: 0 };
 /** Durable job runtime (scan/sync/refresh). Assigned in start(); see jobs.ts. */
 let jobs: JobService;
 const WORKER = join(dirname(fileURLToPath(import.meta.url)), 'organize-worker.ts');
 
-/** Start indexing a folder into SQLite (point-at-a-folder control). No-op if one is already running. */
-function startScan(source: string): void {
-  if (scanJob.state === 'running') return;
+/** The 'scan' job handler: index a folder into SQLite (point-at-a-folder control). */
+async function scanHandler(ctx: JobCtx): Promise<unknown> {
+  const { source } = ctx.params as { source: string };
   reportCache.delete(source); // re-indexing implies the folder may have changed — drop the cached walk
-  scanJob = { state: 'running', source, phase: 'walking folder + reading tags', done: 0, total: 0, startedAt: Date.now() };
-  void (async () => {
-    try {
-      const res = await ingest(source, undefined, (done, total) => {
-        scanJob.done = done;
-        scanJob.total = total;
-        scanJob.phase = 'reading tags';
-      });
-      scanJob = { ...scanJob, state: 'done', phase: 'done', result: res, finishedAt: Date.now() };
-    } catch (e) {
-      scanJob = { ...scanJob, state: 'error', error: e instanceof Error ? e.message : String(e), finishedAt: Date.now() };
-    }
-  })();
+  ctx.progress(0, 0, 'walking folder + reading tags');
+  return ingest(source, undefined, (done, total) => ctx.progress(done, total, 'reading tags'));
+}
+
+/** Map the latest 'scan' job to the ScanStatus shape the UI expects. */
+function scanStatusPayload(): {
+  state: 'idle' | 'running' | 'done' | 'error';
+  source?: string;
+  phase: string;
+  done: number;
+  total: number;
+  result?: unknown;
+  error?: string;
+} {
+  const j = jobs.latest('scan');
+  if (!j) return { state: 'idle', phase: '', done: 0, total: 0 };
+  const params = j.params as { source?: string };
+  const state = j.state === 'running' ? 'running' : j.state === 'done' || j.state === 'cancelled' ? 'done' : 'error';
+  return {
+    state,
+    ...(params?.source ? { source: params.source } : {}),
+    phase: j.phase,
+    done: j.done,
+    total: j.total,
+    ...(j.result ? { result: j.result } : {}),
+    ...(j.state === 'paused' ? { error: 'interrupted by a restart' } : j.error ? { error: j.error } : {}),
+  };
 }
 
 /**
@@ -522,39 +534,57 @@ function profileDetail(db: Database.Database, id: number): unknown {
   };
 }
 
-/** Start an additive sync of a profile to its target drive. Single in-flight job, polled by the UI. */
-function startSync(db: Database.Database, profileId: number): { ok: boolean; error?: string; job: Job } {
-  if (syncJob.state === 'running') return { ok: false, error: 'sync_in_progress', job: syncJob };
-  const prof = db.prepare('SELECT * FROM profiles WHERE id = ?').get(profileId) as ProfileRow | undefined;
-  if (!prof) return { ok: false, error: 'profile_not_found', job: syncJob };
-  if (!prof.target.trim()) return { ok: false, error: 'no_target', job: syncJob };
-  const rows = profileTracks(db, profileId);
-  if (rows.length === 0) return { ok: false, error: 'empty_profile', job: syncJob };
-  const plan = buildSyncPlan(rows, prof.target, prof.preset);
+/** The 'sync' job handler: additive copy of a profile to its target drive (validated by the endpoint). */
+async function syncHandler(db: Database.Database, ctx: JobCtx): Promise<unknown> {
+  const { profileId } = ctx.params as { profileId: number };
+  const prof = db.prepare('SELECT * FROM profiles WHERE id = ?').get(profileId) as ProfileRow;
+  const plan = buildSyncPlan(profileTracks(db, profileId), prof.target, prof.preset);
   const libRoot = meta<{ root?: string }>(db, 'overview')?.root;
-  syncJob = { state: 'running', profileId, dest: prof.target, phase: 'copying', done: 0, total: plan.actions.length, startedAt: Date.now() };
-  void (async () => {
-    try {
-      const report = await executePlan(plan, {
-        ...(libRoot ? { sourceRoot: libRoot } : {}),
-        onProgress: (done, total) => {
-          syncJob.done = done;
-          syncJob.total = total;
-        },
-      });
-      db.prepare('UPDATE profiles SET lastSyncAt = ? WHERE id = ?').run(Date.now(), profileId);
-      syncJob = {
-        ...syncJob,
-        state: 'done',
-        phase: 'done',
-        result: { copied: report.copied, skipped: report.skipped, failed: report.failed, bytes: report.bytesCopied, dest: prof.target },
-        finishedAt: Date.now(),
-      };
-    } catch (e) {
-      syncJob = { ...syncJob, state: 'error', error: e instanceof Error ? e.message : String(e), finishedAt: Date.now() };
-    }
-  })();
-  return { ok: true, job: syncJob };
+  ctx.progress(0, plan.actions.length, 'copying');
+  const report = await executePlan(plan, {
+    ...(libRoot ? { sourceRoot: libRoot } : {}),
+    onProgress: (done, total) => ctx.progress(done, total, 'copying'),
+  });
+  db.prepare('UPDATE profiles SET lastSyncAt = ? WHERE id = ?').run(Date.now(), profileId);
+  return { copied: report.copied, skipped: report.skipped, failed: report.failed, bytes: report.bytesCopied, dest: prof.target };
+}
+
+/** Validate a sync request up front (so the POST can reject synchronously like the UI expects). */
+function syncPreflight(db: Database.Database, id: number): { error?: string; status?: number } {
+  if (jobs.latest('sync')?.state === 'running') return { error: 'sync_in_progress', status: 409 };
+  const prof = db.prepare('SELECT * FROM profiles WHERE id = ?').get(id) as ProfileRow | undefined;
+  if (!prof) return { error: 'profile_not_found', status: 404 };
+  if (!prof.target.trim()) return { error: 'no_target', status: 400 };
+  if (profileTracks(db, id).length === 0) return { error: 'empty_profile', status: 400 };
+  return {};
+}
+
+/** Map the latest 'sync' job to the SyncStatus shape the Drives UI expects. */
+function syncStatusPayload(): {
+  state: 'idle' | 'running' | 'done' | 'error' | 'cancelled';
+  profileId?: number;
+  dest?: string;
+  phase: string;
+  done: number;
+  total: number;
+  result?: unknown;
+  error?: string;
+} {
+  const j = jobs.latest('sync');
+  if (!j) return { state: 'idle', phase: '', done: 0, total: 0 };
+  const params = j.params as { profileId?: number };
+  const result = j.result as { dest?: string } | null;
+  const state = j.state === 'running' ? 'running' : j.state === 'done' ? 'done' : j.state === 'cancelled' ? 'cancelled' : 'error';
+  return {
+    state,
+    ...(params?.profileId != null ? { profileId: params.profileId } : {}),
+    ...(result?.dest ? { dest: result.dest } : {}),
+    phase: j.phase,
+    done: j.done,
+    total: j.total,
+    ...(j.result ? { result: j.result } : {}),
+    ...(j.state === 'paused' ? { error: 'interrupted by a restart' } : j.error ? { error: j.error } : {}),
+  };
 }
 
 /* ============= online refresh (MusicBrainz + Cover Art Archive) =============
@@ -872,12 +902,11 @@ function refreshStatusPayload(): {
   };
 }
 
-/** Everything currently running, for a global "what's running" indicator. */
+/** Everything currently running, for a global "what's running" indicator. scan/sync/refresh come from
+ * the JobService; organize is still on its own child-process path so it's folded in here. */
 function activeJobs(): Array<{ type: string; phase: string; done: number; total: number }> {
   const out = jobs.active().map((j) => ({ type: j.type, phase: j.phase, done: j.done, total: j.total }));
   if (organizeJob.state === 'running') out.push({ type: 'organize', phase: organizeJob.phase, done: organizeJob.done, total: organizeJob.total });
-  if (scanJob.state === 'running') out.push({ type: 'scan', phase: scanJob.phase, done: scanJob.done, total: scanJob.total });
-  if (syncJob.state === 'running') out.push({ type: 'sync', phase: syncJob.phase, done: syncJob.done, total: syncJob.total });
   return out;
 }
 
@@ -1238,11 +1267,11 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     const b = await readBody(req);
     const source = String(b.source ?? '').trim();
     if (!source) return json(res, 400, { ok: false, error: 'no_source' });
-    if (scanJob.state === 'running') return json(res, 409, { ok: false, error: 'scan_in_progress', job: scanJob });
-    startScan(source);
-    return json(res, 202, { ok: true, job: scanJob });
+    if (jobs.latest('scan')?.state === 'running') return json(res, 409, { ok: false, error: 'scan_in_progress', job: scanStatusPayload() });
+    jobs.enqueue('scan', { source });
+    return json(res, 202, { ok: true, job: scanStatusPayload() });
   }
-  if (path === '/api/scan/status') return json(res, 200, scanJob);
+  if (path === '/api/scan/status') return json(res, 200, scanStatusPayload());
 
   if (path === '/api/organize/simulate' && method === 'POST') {
     const b = await readBody(req);
@@ -1355,10 +1384,12 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     const b = await readBody(req);
     const id = Number(b.id);
     if (!id) return json(res, 400, { ok: false, error: 'no_id' });
-    const r = startSync(db, id);
-    return json(res, r.ok ? 202 : 409, r);
+    const pre = syncPreflight(db, id);
+    if (pre.error) return json(res, pre.status ?? 409, { ok: false, error: pre.error, job: syncStatusPayload() });
+    jobs.enqueue('sync', { profileId: id });
+    return json(res, 202, { ok: true, job: syncStatusPayload() });
   }
-  if (path === '/api/profile/sync/status') return json(res, 200, syncJob);
+  if (path === '/api/profile/sync/status') return json(res, 200, syncStatusPayload());
 
   // ---- online refresh (metadata + cover) ----
   if (path === '/api/album/refresh' && method === 'POST') {
@@ -1461,6 +1492,8 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
 export function start(): void {
   const db = openDb();
   jobs = new JobService(db); // durable job runtime + boot recovery (orphaned 'running' → 'paused')
+  jobs.register('scan', (ctx) => scanHandler(ctx));
+  jobs.register('sync', (ctx) => syncHandler(db, ctx));
   jobs.register('refresh', (ctx) => refreshHandler(db, ctx));
   const server = createServer((req, res) => {
     handle(db, req, res).catch((err) =>

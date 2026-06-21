@@ -290,6 +290,9 @@ export const api = {
   cancelRefreshBatch: () => post<{ ok: boolean }>('/api/refresh/cancel', {}),
   applyRefreshBatch: (items: Array<{ albumId: string; title?: string; year?: number; cover?: boolean; mbid?: string }>) =>
     post<{ ok: boolean; applied: number }>('/api/refresh/apply-batch', { items }),
+
+  // ---- global jobs view ----
+  activeJobs: () => get<Array<{ type: string; phase: string; done: number; total: number }>>('/api/jobs/active'),
 };
 
 // ---- formatting helpers ----
