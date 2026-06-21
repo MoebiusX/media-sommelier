@@ -2,7 +2,7 @@
 
 Status: **active** · Scope: the `server2` background-job and online-enrichment subsystem · Audience: future maintainers.
 
-This reviews how long-running operations (scan, organize, drive-sync, online refresh) are run and observed, identifies where the current pattern strains, and records the chosen direction. The **resumable-enrichment ledger** described in §5 is **implemented**; the **JobService** refactor in §4 is **proposed, not built**.
+This reviews how long-running operations (scan, organize, drive-sync, online refresh) are run and observed, identifies where the current pattern strains, and records the chosen direction. The **resumable-enrichment ledger** (§5) and the **JobService** (§4) are both **implemented** — scan, sync and refresh now run through it; `organize` remains on its child-process path (folded into the global view).
 
 ---
 
@@ -35,17 +35,17 @@ Four jobs, four near-identical `{state,phase,done,total,result}` shapes, four `/
 
 | # | Problem | Consequence |
 |---|---|---|
-| 1 | Job state is **ephemeral** (module globals) | A restart mid-job loses progress *and* the in-memory review queue. `tsx watch` reloads on every save in dev. |
+| 1 | Job state was **ephemeral** (module globals) | A restart mid-job lost progress + the in-memory review queue. **(fixed — §4: scan/sync/refresh persist; boot recovery)** |
 | 2 | Enrichment sweep was **non-resumable** | Re-running re-walked all candidates; a crash at album 1,400 started over. **(fixed — §5)** |
 | 3 | **No negative caching** for MusicBrainz no-match / CAA no-cover | Every sweep re-hit the network for hopeless albums. **(fixed — §5)** |
-| 4 | CPU work (hashing in `executePlan`) on the main loop for sync | Competes with request serving; organize sidesteps this, sync doesn't. |
-| 5 | Four copies of the job pattern | Every new long op re-implements singleton + poll + guard. |
+| 4 | CPU work (hashing in `executePlan`) on the main loop for sync | Competes with request serving; organize sidesteps this via a child process, sync still runs inline (acceptable — streamed I/O). |
+| 5 | Four copies of the job pattern | **(fixed — §4: scan/sync/refresh share one runtime; organize is the last holdout)** |
 
 Explicitly **not** problems: single-writer SQLite, lack of a queue broker, multi-node scale. Reaching for those would be wrong for a single-user local tool.
 
-## 4. Proposed direction — durable in-process jobs on SQLite (NOT built yet)
+## 4. JobService — durable in-process jobs on SQLite (BUILT)
 
-A single `JobService`: one drain loop, a typed handler registry, and `jobs` / `job_items` tables so state and per-unit results survive a restart.
+Implemented in `src/server2/jobs.ts`. A single `JobService` owns job lifecycle: a typed handler registry, and `jobs` / `job_items` tables so state and per-unit results survive a restart. scan/sync/refresh are migrated; `organize` keeps its child-process implementation and is surfaced in the global view. Status: one job per type at a time; jobs start immediately on enqueue (no backlog queue — matches the local-tool UX); `/api/jobs/active` powers a sidebar "what's running" indicator. Boot recovery (orphaned `running` → `paused`) and durable `job_items` (the refresh review queue survives a restart) are verified.
 
 ```
 POST /api/jobs {type,params} ─▶ JobService ─┬─ enqueue → jobs table (state,cursor,result)
@@ -102,7 +102,7 @@ CREATE TABLE album_enrich (
 
 Durability: `album_enrich` survives `clearAll` (re-ingest), keyed by the deterministic album slug, like `album_overrides`.
 
-**Boundary — what the ledger does NOT fix:** the in-memory `refreshJob.proposals` review queue is still lost on a mid-review restart (pain #1). It's recoverable cheaply (re-running the sweep is now near-instant for attempted albums), but making the queue itself durable needs `job_items` from §4.
+**Update:** the review queue is now durable too — the refresh job emits each proposal as a `job_item` (§4), and boot recovery flips an interrupted sweep `running → paused` while keeping its items, so the review survives a restart.
 
 ## 6. Scale & reliability (realistic)
 
