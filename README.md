@@ -66,12 +66,17 @@ and say so). A compact media-type summary (music / photos / videos counts) appea
 - **Albums** — the reconstruction view: scattered files rebuilt into release candidates with confidence,
   a "why grouped" evidence trace, multi-disc merges, orphans, and duplicate candidates.
 - **Photos** — EXIF-driven gallery grouped by day, with camera/GPS stats and a full-screen **lightbox**
-  (arrow-key navigation, map links for geotagged shots).
+  (clamped arrow-key navigation, map links for geotagged shots). Capped grid with a "showing first N" hint.
 - **Videos** — a poster grid (frames extracted on demand to `data/posters/`, never touching the source)
-  with resolution/codec/duration badges and an in-app player overlay (HTTP Range streaming, so it seeks).
+  with resolution/codec/duration badges and an in-app player overlay (HTTP Range streaming, so it seeks;
+  shows a clear message when a codec can't play in the browser instead of a black frame).
 - **Insights** — collection metrics (lossless %, formats, top artists) and on-device owner profiling.
 - **Organize** — pick a naming scheme + destination, preview the dry-run plan, then copy into a clean tree
   (originals never touched, optional MusicBrainz enrichment and tag-writing onto the copies).
+
+All file-serving endpoints (`audio` / `video` / `poster` / `cover` / `image`) are **confined to scanned
+roots** — a request for any path outside the folders you actually scanned is rejected (403), so a stray web
+page can't use the local server to read arbitrary files off your disk.
 
 ## What it tells you, after a scan
 
@@ -94,14 +99,14 @@ test/        vitest suites + the bundled sample collection fixture
 
 ## Status — engine working end-to-end (V0 + V1 enrichment)
 
-The engine is built, tested (**76 tests**), and proven on real audio — it has organized a real album
+The engine is built, tested (**89 tests**), and proven on real audio — it has organized a real album
 end-to-end (reconstruct → enrich → copy → tag) with originals untouched. Docs:
 [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`CLI.md`](docs/CLI.md) ·
 [`IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
 ```bash
 npm install
-npm test                                                   # 76 tests
+npm test                                                   # 89 tests
 LISTING=test/fixtures/sample/sample-collection.dir.txt
 
 # offline, no setup — runs on the bundled real-data sample:

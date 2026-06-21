@@ -16,6 +16,16 @@ describe('resolutionBucket', () => {
     expect(resolutionBucket({ width: 640, height: 360 })).toBe('SD');
     expect(resolutionBucket({})).toBe('unknown');
   });
+  it('keys off height; does not over-promote a wide-but-short letterboxed source', () => {
+    // 1920x800 is a letterboxed/anamorphic 800-tall source — bucketed on height (720p), not width.
+    expect(resolutionBucket({ width: 1920, height: 800 })).toBe('720p');
+    // portrait phone clip — tall side wins.
+    expect(resolutionBucket({ width: 1080, height: 1920 })).toBe('1080p');
+  });
+  it('falls back to width only when height is absent', () => {
+    expect(resolutionBucket({ width: 3840 })).toBe('4K');
+    expect(resolutionBucket({ height: 1080 })).toBe('1080p');
+  });
 });
 
 describe('computeVideoStats', () => {

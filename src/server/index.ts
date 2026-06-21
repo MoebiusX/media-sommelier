@@ -7,12 +7,12 @@
  *   npm run ui    →    http://localhost:4178
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFile, stat, mkdir } from 'node:fs/promises';
+import { readFile, stat, mkdir, realpath } from 'node:fs/promises';
 import { createReadStream, existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve as resolvePath, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import {
@@ -27,6 +27,7 @@ import {
   computeLibraryStats,
   scanPhotos,
   scanVideos,
+  resolutionBucket,
   MusicBrainzClient,
   AcoustIdClient,
   enrichCandidate,
@@ -50,23 +51,82 @@ const VIDEO_MIME: Record<string, string> = {
   avi: 'video/x-msvideo', m4v: 'video/x-m4v', mpg: 'video/mpeg', mpeg: 'video/mpeg',
 };
 
+/**
+ * Path-safety boundary for every file-serving endpoint. The engine populates this Set with the
+ * normalized absolute root of each successful scan (library/photos/videos). A request whose resolved
+ * real path does not live inside one of these roots is rejected — defeating ../ traversal, symlink
+ * tricks, and DNS-rebind/CSRF exfiltration of arbitrary host files. The MIME map is NOT a security
+ * boundary; confinement is.
+ */
+const allowedRoots = new Set<string>();
+
+/** Register a scanned source root as allowed for file serving. Idempotent. */
+export async function registerRoot(root: string): Promise<void> {
+  try {
+    const real = await realpath(root);
+    allowedRoots.add(real);
+  } catch {
+    // Unresolvable root (e.g. a sleeping network drive) — skip; nothing to allow.
+  }
+}
+
+/** True if `real` (an already-realpath'd absolute path) lies within an allowed root. */
+function withinAllowedRoot(real: string): boolean {
+  for (const root of allowedRoots) {
+    if (real === root || real.startsWith(root.endsWith(sep) ? root : root + sep)) return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve a client-supplied path to its canonical real path and verify it is confined to a scanned
+ * root. Returns the safe real path, or null if it escapes the allowlist / cannot be resolved.
+ * This single check guards serveFile, posterFor, /api/cover and /api/image.
+ */
+async function confinePath(p: string): Promise<string | null> {
+  let real: string;
+  try { real = await realpath(resolvePath(p)); } catch { return null; }
+  return withinAllowedRoot(real) ? real : null;
+}
+
+/** Attach an error handler so a mid-stream read failure destroys the response instead of crashing. */
+function pipeSafe(stream: NodeJS.ReadableStream & { destroy?: () => void }, res: ServerResponse): void {
+  stream.on('error', () => { if (!res.headersSent) res.writeHead(404); res.end(); });
+  stream.pipe(res);
+}
+
 /** Stream a file with HTTP Range support so players can seek. Used for both audio and video. */
 async function serveFile(req: IncomingMessage, res: ServerResponse, path: string, mimeMap: Record<string, string>): Promise<void> {
-  const ext = (path.split('.').pop() ?? '').toLowerCase();
+  const real = await confinePath(path);
+  if (!real) { res.writeHead(403); res.end(); return; }
+  const ext = (real.split('.').pop() ?? '').toLowerCase();
   const type = mimeMap[ext];
   if (!type) { res.writeHead(415); res.end(); return; }
   let size: number;
-  try { size = (await stat(path)).size; } catch { res.writeHead(404); res.end(); return; }
+  try { size = (await stat(real)).size; } catch { res.writeHead(404); res.end(); return; }
   const range = req.headers.range;
   const m = range ? /bytes=(\d+)-(\d*)/.exec(range) : null;
   if (m) {
-    const start = Number(m[1]);
-    const end = m[2] ? Number(m[2]) : size - 1;
+    let start = Number(m[1]);
+    let end = m[2] ? Number(m[2]) : size - 1;
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      // Malformed range → fall back to a full 200 response.
+      res.writeHead(200, { 'content-type': type, 'accept-ranges': 'bytes', 'content-length': size });
+      pipeSafe(createReadStream(real), res);
+      return;
+    }
+    end = Math.min(end, size - 1);
+    if (start > end || start >= size) {
+      // Unsatisfiable range per RFC 7233.
+      res.writeHead(416, { 'content-range': `bytes */${size}` });
+      res.end();
+      return;
+    }
     res.writeHead(206, { 'content-type': type, 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
-    createReadStream(path, { start, end }).pipe(res);
+    pipeSafe(createReadStream(real, { start, end }), res);
   } else {
     res.writeHead(200, { 'content-type': type, 'accept-ranges': 'bytes', 'content-length': size });
-    createReadStream(path).pipe(res);
+    pipeSafe(createReadStream(real), res);
   }
 }
 
@@ -90,6 +150,8 @@ function leanVideo(v: Video) {
     path: v.path, title: v.title, durationMs: v.durationMs ?? null,
     width: v.width ?? null, height: v.height ?? null, videoCodec: v.videoCodec ?? '',
     bitrateKbps: v.bitrateKbps ?? null, sizeBytes: v.sizeBytes,
+    // Server-derived resolution bucket so the client never re-derives (and drifts from) this logic.
+    res: resolutionBucket(v),
   };
 }
 
@@ -112,14 +174,39 @@ function ffmpegPath(): string {
 }
 
 /**
+ * Tiny concurrency gate so a grid of <img src=/api/poster> can't spawn unbounded ffmpeg subprocesses
+ * (each a 480p transcode, possibly off a slow network drive). At most POSTER_CONCURRENCY run at once;
+ * the rest queue.
+ */
+const POSTER_CONCURRENCY = 2;
+let posterActive = 0;
+const posterQueue: Array<() => void> = [];
+function posterSlot(): Promise<() => void> {
+  return new Promise((release) => {
+    const grant = () => { posterActive++; release(() => { posterActive--; const next = posterQueue.shift(); if (next) next(); }); };
+    if (posterActive < POSTER_CONCURRENCY) grant();
+    else posterQueue.push(grant);
+  });
+}
+
+/**
  * Best-effort poster: grab one frame ~10% into the video to a cached jpeg under data/posters/.
  * Returns the cache path, or null if ffmpeg is unavailable or extraction fails. Never touches the source.
+ * Cache key includes size+mtime (matching the catalog cache discipline) so a replaced source at the
+ * same path regenerates its poster instead of serving a stale one.
  */
 async function posterFor(srcPath: string): Promise<string | null> {
-  const hash = createHash('sha1').update(srcPath).digest('hex');
+  let durationSec = 0;
+  let cacheKey = srcPath;
+  try {
+    const st = await stat(srcPath);
+    cacheKey = `${srcPath}:${st.size}:${st.mtimeMs}`;
+  } catch {
+    return null; // source vanished
+  }
+  const hash = createHash('sha1').update(cacheKey).digest('hex');
   const out = join(POSTER_DIR, `${hash}.jpg`);
   if (existsSync(out)) return out;
-  let durationSec = 0;
   try {
     const { readVideo } = await import('../engine/index.js');
     const meta = await readVideo(srcPath);
@@ -128,6 +215,7 @@ async function posterFor(srcPath: string): Promise<string | null> {
     // ignore; fall back to a fixed seek
   }
   const seek = durationSec > 0 ? Math.max(1, durationSec * 0.1) : 10;
+  const release = await posterSlot();
   try {
     await mkdir(POSTER_DIR, { recursive: true });
     await execFileAsync(
@@ -138,6 +226,8 @@ async function posterFor(srcPath: string): Promise<string | null> {
     return existsSync(out) ? out : null;
   } catch {
     return null;
+  } finally {
+    release();
   }
 }
 const SAMPLE = 'test/fixtures/sample/sample-collection.dir.txt';
@@ -237,21 +327,26 @@ const server = createServer(async (req, res) => {
       const folder = url.searchParams.get('source');
       if (!folder || folder === 'sample') return json(res, { needsFolder: true });
       const r = await scanVideos(folder);
+      await registerRoot(folder);
       return json(res, { root: folder, stats: r.stats, videos: r.videos.map(leanVideo) });
     }
     if (url.pathname === '/api/poster') {
       const p = url.searchParams.get('path');
       if (!p) { res.writeHead(400); res.end(); return; }
-      const poster = await posterFor(p);
+      const real = await confinePath(p);
+      if (!real) { res.writeHead(403); res.end(); return; }
+      const poster = await posterFor(real);
       if (!poster) { res.writeHead(404); res.end(); return; }
       res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'max-age=86400' });
-      createReadStream(poster).pipe(res);
+      pipeSafe(createReadStream(poster), res);
       return;
     }
     if (url.pathname === '/api/cover') {
       const p = url.searchParams.get('path');
       if (!p) { res.writeHead(400); res.end(); return; }
-      const c = await readCover(p);
+      const real = await confinePath(p);
+      if (!real) { res.writeHead(403); res.end(); return; }
+      const c = await readCover(real);
       if (!c) { res.writeHead(404); res.end(); return; }
       res.writeHead(200, { 'content-type': c.mime, 'cache-control': 'max-age=86400' });
       res.end(c.data);
@@ -259,30 +354,39 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === '/api/image') {
       const p = url.searchParams.get('path');
-      const ext = (p?.split('.').pop() ?? '').toLowerCase();
-      if (!p || !IMAGE_MIME[ext]) { res.writeHead(p ? 415 : 400); res.end(); return; }
+      if (!p) { res.writeHead(400); res.end(); return; }
+      const real = await confinePath(p);
+      if (!real) { res.writeHead(403); res.end(); return; }
+      const ext = (real.split('.').pop() ?? '').toLowerCase();
+      if (!IMAGE_MIME[ext]) { res.writeHead(415); res.end(); return; }
       try {
-        await stat(p);
+        await stat(real);
       } catch { res.writeHead(404); res.end(); return; }
       res.writeHead(200, { 'content-type': IMAGE_MIME[ext], 'cache-control': 'max-age=86400' });
-      createReadStream(p).pipe(res);
+      pipeSafe(createReadStream(real), res);
       return;
     }
     if (url.pathname === '/api/photos') {
       const folder = url.searchParams.get('source');
       if (!folder || folder === 'sample') return json(res, { needsFolder: true });
       const r = await scanPhotos(folder);
+      await registerRoot(folder);
       return json(res, { stats: r.stats, photos: r.photos.map((p) => ({ path: p.path, name: p.name, takenAt: p.takenAt ?? null, camera: p.camera ?? '', width: p.width ?? null, height: p.height ?? null, gps: p.gpsLat != null, gpsLat: p.gpsLat ?? null, gpsLon: p.gpsLon ?? null, sizeBytes: p.sizeBytes })) });
     }
     if (url.pathname === '/api/library') {
       const folder = url.searchParams.get('source');
       if (!folder || folder === 'sample') return json(res, { needsFolder: true });
       const r = await scanLibraryCached(folder, { cacheDir: 'data/catalogs' });
+      await registerRoot(folder);
       return json(res, { root: folder, stats: computeLibraryStats(r.tracks), tracks: r.tracks.map(leanTrack), cache: { cached: r.cached, scanned: r.scanned, removed: r.removed } });
     }
 
     const source = url.searchParams.get('source');
-    if (url.pathname === '/api/reconstruct') return json(res, reconstruct(await inventoryFor(source)));
+    if (url.pathname === '/api/reconstruct') {
+      const inv = await inventoryFor(source);
+      if (source && source !== 'sample') await registerRoot(source);
+      return json(res, reconstruct(inv));
+    }
     if (url.pathname === '/api/insights') {
       const inv = await inventoryFor(source);
       return json(res, computeInsights(inv, reconstruct(inv)));

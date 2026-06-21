@@ -124,15 +124,30 @@ folder picker** (`FolderBrowserDialog` via PowerShell) and actually execute the 
 - **Library + catalog cache** — `/api/library` calls `scanLibraryCached`, which reads tags through an on-disk
   JSON cache keyed by `path+size+mtime` under `data/catalogs/`. Unchanged files are served from cache, so a
   re-scan of a large library only reads the files that actually changed (the UI shows cached/scanned counts).
+- **Path confinement (security boundary)** — every file-serving endpoint (`/api/audio`, `/api/video`,
+  `/api/poster`, `/api/cover`, `/api/image`) runs the client-supplied `path` through one `confinePath`
+  helper: `realpath` it, then require it to live inside an **allowlist of scanned roots** (populated by the
+  last successful library/photos/videos/reconstruct scan). Anything outside — `../` traversal, symlink
+  escapes, or a DNS-rebind/CSRF probe for `C:/Windows/win.ini` — gets a **403**. The MIME map is a
+  content-type hint, never the security gate.
 - **Mini player + Range streaming** — `/api/audio` and `/api/video` stream with HTTP `Range` support (one
-  `serveFile` helper, two MIME maps) so the `<audio>`/`<video>` elements can seek. The player has a queue,
-  shuffle/repeat, persisted prefs, and keyboard shortcuts; audio and the video overlay are mutually exclusive.
+  `serveFile` helper, two MIME maps) so the `<audio>`/`<video>` elements can seek. Ranges are **clamped to
+  the file size** (`end = min(end, size-1)`), an unsatisfiable range returns **416** with `Content-Range:
+  bytes */size`, and a malformed range falls back to a full 200. Every `createReadStream` has an `error`
+  handler so a mid-stream read failure destroys the response instead of crashing the process. The player has
+  a queue, shuffle/repeat, persisted prefs, and keyboard shortcuts; audio and the video overlay are mutually
+  exclusive (starting one pauses the other, reflected in the mini-player).
 - **Photos + lightbox** — `/api/photos` returns `scanPhotos` EXIF; the gallery groups by day and opens a
-  full-screen lightbox with arrow-key navigation and map links for geotagged shots. `/api/image` streams
-  the original (read-only, MIME-guarded).
-- **Videos + posters** — `/api/videos` returns `scanVideos` (ffprobe) metadata. `/api/poster` extracts one
-  frame ~10% in via `ffmpeg` to a cached jpeg under `data/posters/` — **best-effort and source-read-only**:
-  if ffmpeg is missing or extraction fails it returns 404 and the UI falls back to a film-strip placeholder.
+  full-screen lightbox with **clamped (non-wrapping) arrow-key navigation** — the ‹ › affordances disable at
+  the ends — and map links for geotagged shots. `/api/image` streams the original (read-only, confined,
+  MIME-guarded). The grid is capped (600) with a "showing first N" hint, matching Library and Videos.
+- **Videos + posters** — `/api/videos` returns `scanVideos` (ffprobe) metadata including a server-derived
+  resolution bucket (height-primary, so the client never re-derives and drifts from it). `/api/poster`
+  extracts one frame ~10% in via `ffmpeg` to a cached jpeg under `data/posters/`, keyed by **path+size+mtime**
+  (so a replaced source regenerates) and behind a small **concurrency gate** (≤2) so a tall grid can't spawn
+  unbounded ffmpeg transcodes — **best-effort and source-read-only**: if ffmpeg is missing or extraction
+  fails it returns 404 and the UI falls back to a film-strip placeholder. The overlay surfaces loading /
+  buffering / "can't play this codec in the browser" feedback instead of a silent black frame.
 - **Graceful degradation** — the bundled `sample` is a filename listing with no real bytes, so Library /
   Photos / Videos / player return a `needsFolder` state and the UI prompts for a real folder. Any unavailable
   native binary degrades to a placeholder rather than crashing.
@@ -149,7 +164,7 @@ folder picker** (`FolderBrowserDialog` via PowerShell) and actually execute the 
 
 ## Testing
 
-76 tests (`vitest`), all network/disk-free except two real-FS integration tests:
+89 tests (`vitest`), all network/disk-free except two real-FS integration tests:
 
 - pure logic: text helpers, `parseName`, reconstruction on the real sample, the match scorer, tracklist
   extraction, AcoustID response parsing, plan tags/enrichment overrides, multi-disc recovery (collapsed

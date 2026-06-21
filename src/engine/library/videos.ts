@@ -121,15 +121,20 @@ export interface VideoScanResult {
   stats: VideoStats;
 }
 
-/** Bucket a video by its vertical resolution (height), the conventional naming axis. */
+/**
+ * Bucket a video by its vertical resolution (height), the conventional naming axis. Height is the
+ * primary signal; width is used only as a fallback when height is missing, so a short-but-wide
+ * letterboxed/anamorphic source isn't over-promoted purely on its pixel width.
+ */
 export function resolutionBucket(v: Pick<Video, 'width' | 'height'>): string {
   const h = v.height ?? 0;
   const w = v.width ?? 0;
   if (!h && !w) return 'unknown';
-  if (h >= 2160 || w >= 3840) return '4K';
-  if (h >= 1080 || w >= 1920) return '1080p';
-  if (h >= 720 || w >= 1280) return '720p';
-  if (h >= 480 || w >= 854) return '480p';
+  const axis = h || w; // prefer height; fall back to width only when height is absent
+  if (axis >= 2160) return '4K';
+  if (axis >= 1080) return '1080p';
+  if (axis >= 720) return '720p';
+  if (axis >= 480) return '480p';
   return 'SD';
 }
 

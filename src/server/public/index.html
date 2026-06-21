@@ -145,8 +145,11 @@
   #voverlay .vbar .vtitle { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #voverlay .vbar .spacer { margin-left:auto; }
   #voverlay .vbar .vclose { background:var(--panel2); border:1px solid var(--line); color:var(--ink); border-radius:9px; padding:7px 13px; }
-  #voverlay .vstage { flex:1; display:grid; place-items:center; padding:0 18px 18px; min-height:0; }
+  #voverlay .vstage { flex:1; display:grid; place-items:center; padding:0 18px 18px; min-height:0; position:relative; }
   #voverlay video { max-width:100%; max-height:100%; border-radius:10px; background:#000; }
+  #vnotice { display:none; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); align-items:center; gap:9px;
+    background:rgba(16,18,25,.94); border:1px solid var(--line); color:var(--ink); border-radius:10px; padding:12px 16px;
+    max-width:min(440px,86%); font-size:13.5px; line-height:1.45; text-align:center; }
   /* photo day groups + lightbox */
   .pday { display:flex; align-items:baseline; gap:10px; margin:18px 0 9px; }
   .pday:first-of-type { margin-top:4px; }
@@ -160,6 +163,7 @@
   #plightbox .lstage { flex:1; display:flex; align-items:center; justify-content:center; gap:14px; padding:0 18px; min-height:0; }
   #plightbox .lstage img { max-width:100%; max-height:100%; border-radius:10px; background:#000; object-fit:contain; }
   #plightbox .lnav { font-size:20px; line-height:1; padding:10px 15px; flex:none; }
+  #plightbox .lnav:disabled { opacity:.3; cursor:default; }
   #plightbox .lcap { padding:12px 18px 18px; color:var(--dim); font-size:13px; display:flex; gap:14px; flex-wrap:wrap; align-items:center; justify-content:center; }
   #plightbox .lcap .lk { color:var(--ink); }
   #plightbox .lcap a { color:var(--accent2); text-decoration:none; }
@@ -237,7 +241,7 @@
 
 <div id="voverlay">
   <div class="vbar"><span class="vtitle" id="vtitle">—</span><span class="spacer"></span><button class="vclose" id="vclose">✕ Close (Esc)</button></div>
-  <div class="vstage"><video id="vid" controls playsinline></video></div>
+  <div class="vstage"><video id="vid" controls playsinline></video><div id="vnotice"></div></div>
 </div>
 
 <div id="plightbox">
@@ -260,7 +264,15 @@ function color(s){ let h=0; for(const ch of s) h=(h*31+ch.charCodeAt(0))%360; re
 // Consistent UI states shared across Library / Photos / Videos.
 const loadingState = (msg) => `<div class="empty"><span class="spin"></span> ${esc(msg)}</div>`;
 const errorState = (msg) => `<div class="empty warn">⚠ ${esc(msg)}</div>`;
-const emptyState = (ico, msg) => `<div class="empty"><span class="ico">${ico}</span><div class="sub2">${esc(msg)}</div></div>`;
+// emptyState now renders into #view (not a string) so it can wire an optional secondary action,
+// matching the polish of needsFolderState. Pass (ico, lead, msg) or (ico, lead, msg, actionLabel, onAction).
+function emptyState(ico, lead, msg, actionLabel, onAction) {
+  view.innerHTML = `<div class="empty"><span class="ico">${ico}</span>
+    <div class="lead">${esc(lead)}</div>
+    <div class="sub2">${esc(msg)}</div>
+    ${actionLabel?`<button id="emptyact" class="go">${esc(actionLabel)}</button>`:''}</div>`;
+  if (actionLabel && onAction) $('#emptyact').onclick = onAction;
+}
 // "needs a real folder" state — the bundled sample has no real files, so these tabs need one.
 function needsFolderState(ico, what, onPick) {
   view.innerHTML = `<div class="empty"><span class="ico">${ico}</span>
@@ -285,10 +297,15 @@ function renderMediaSummary() {
   const music = report.summary?.audioFiles ?? 0;
   const chips = [`<span class="chip" title="Music files">🎵 <b>${music.toLocaleString()}</b> music</span>`];
   if (isSample) { el.hidden = false; el.innerHTML = chips.join(''); return; } // sample has no real photos/videos
-  const pc = (photos && !photos.needsFolder && !photos.error) ? (photos.stats?.count ?? 0) : null;
-  const vc = (videos && !videos.needsFolder && !videos.error) ? (videos.stats?.count ?? 0) : null;
-  chips.push(pc==null ? `<span class="chip pending" title="Open the Photos tab to count">🖼️ photos</span>` : `<span class="chip" title="Photos">🖼️ <b>${pc.toLocaleString()}</b> photos</span>`);
-  chips.push(vc==null ? `<span class="chip pending" title="Open the Videos tab to count">🎬 videos</span>` : `<span class="chip" title="Videos">🎬 <b>${vc.toLocaleString()}</b> videos</span>`);
+  // Three states per chip: not loaded (null → pending), loaded-with-count, or loaded-but-uncountable
+  // (error/needsFolder → show a dash so the summary never sticks on a stale 'pending').
+  const countOf = (m) => !m ? null : (m.needsFolder || m.error) ? '—' : (m.stats?.count ?? 0);
+  const chip = (c, icon, label) => c==null
+    ? `<span class="chip pending" title="Open the ${label} tab to count">${icon} ${label.toLowerCase()}</span>`
+    : c==='—' ? `<span class="chip" title="${label} unavailable for this folder">${icon} <b>—</b> ${label.toLowerCase()}</span>`
+    : `<span class="chip" title="${label}">${icon} <b>${c.toLocaleString()}</b> ${label.toLowerCase()}</span>`;
+  chips.push(chip(countOf(photos), '🖼️', 'Photos'));
+  chips.push(chip(countOf(videos), '🎬', 'Videos'));
   el.hidden = false; el.innerHTML = chips.join('');
 }
 
@@ -306,7 +323,7 @@ async function scan() {
     tabs.hidden = false;
     renderMediaSummary();
     if (!audio.src) showPlayer(); // present-but-idle once a library is loaded
-    render();
+    await safeRender();
   } catch (e) { view.innerHTML = errorState(e.message); }
   finally { $('#scan').disabled = false; }
 }
@@ -404,6 +421,10 @@ async function render() {
   }
 }
 
+// Render wrapper: surface a fetch rejection (server stopped, dropped connection) as an error view
+// instead of leaving a permanent spinner + unhandled promise rejection.
+function safeRender() { return render().catch((e) => { view.innerHTML = errorState((e && e.message) || 'Something went wrong.'); }); }
+
 // ---- Library grid ----
 let library = null, libSort = { key:'artist', asc:true }, libFilter = '', queue = [], qi = -1;
 const audio = $('#audio');
@@ -418,7 +439,7 @@ async function loadLibrary() {
 }
 
 function renderLibrary() {
-  if (library?.needsFolder) { needsFolderState('🎵', 'The Library', async()=>{ await browse(); library=null; render(); }); return; }
+  if (library?.needsFolder) { needsFolderState('🎵', 'The Library', async()=>{ await browse(); library=null; safeRender(); }); return; }
   if (library?.error) { view.innerHTML = errorState(library.error); return; }
   const st = library.stats;
   const cols = [['artist','Artist'],['title','Title'],['album','Album'],['genre','Genre'],['durationMs','Time','num'],['bitrateKbps','Bitrate','num'],['sizeBytes','Size','num']];
@@ -453,16 +474,16 @@ async function loadPhotos() {
   if (src()==='sample') { photos = { needsFolder:true }; return; }
   if (photos && photos._for===src()) return;
   const r = await (await fetch('/api/photos?source='+encodeURIComponent(src()))).json();
-  r._for = src(); photos = r;
+  r._for = src(); photos = r; renderMediaSummary(); // refresh the chip even on error/needsFolder
 }
 const PHOTO_CAP = 600;
 let shownPhotos = [];   // flat list (capped) — indices match lightbox navigation
 const dayHdr = (iso) => { const d=new Date(iso); return d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'2-digit',year:'numeric'}); };
 function renderPhotos() {
-  if (photos?.needsFolder) { needsFolderState('🖼️', 'Photos', async()=>{ await browse(); photos=null; render(); }); return; }
+  if (photos?.needsFolder) { needsFolderState('🖼️', 'Photos', async()=>{ await browse(); photos=null; safeRender(); }); return; }
   if (photos?.error) { view.innerHTML = errorState(photos.error); return; }
   const st = photos.stats;
-  if (!st.count) { view.innerHTML = emptyState('🖼️', 'No images found under this folder.'); return; }
+  if (!st.count) { emptyState('🖼️', 'No photos here', 'No images were found under this folder. Try a different folder, or one that contains photos.', '📁 Choose another folder…', async()=>{ await browse(); photos=null; safeRender(); }); return; }
   const dr = st.dateRange.from ? `${st.dateRange.from.slice(0,10)} → ${(st.dateRange.to||'').slice(0,10)}` : '';
   // Group the (capped) list by day; undated last. Preserve flat index for the lightbox.
   shownPhotos = photos.photos.slice(0, PHOTO_CAP);
@@ -487,8 +508,10 @@ const plightbox = $('#plightbox');
 let lbIdx = -1;
 function openLightbox(i) {
   if (!shownPhotos.length) return;
-  lbIdx = ((i % shownPhotos.length) + shownPhotos.length) % shownPhotos.length;
+  lbIdx = Math.max(0, Math.min(i, shownPhotos.length - 1)); // clamped bounds (no wrap) to match the ‹ › affordance
   const p = shownPhotos[lbIdx];
+  $('#lbprev').disabled = lbIdx === 0;
+  $('#lbnext').disabled = lbIdx === shownPhotos.length - 1;
   $('#lbimg').src = '/api/image?path='+encodeURIComponent(p.path);
   $('#lbname').textContent = p.name || p.path;
   const bits = [];
@@ -515,53 +538,70 @@ document.addEventListener('keydown', (e) => {
 // ---- Videos ----
 let videos = null;
 const vid = $('#vid'), voverlay = $('#voverlay');
-function resBadge(w, h) {
-  const hh = h || 0, ww = w || 0;
-  if (!hh && !ww) return '';
-  if (hh>=2160 || ww>=3840) return '4K';
-  if (hh>=1080 || ww>=1920) return '1080p';
-  if (hh>=720 || ww>=1280) return '720p';
-  if (hh>=480 || ww>=854) return '480p';
-  return 'SD';
-}
+// Resolution bucket is computed server-side (leanVideo.res) so the two never drift; 'unknown' → no badge.
+const resBadge = (v) => (v.res && v.res !== 'unknown') ? v.res : '';
 const vext = (p) => { const e = (p.split('.').pop()||'').toLowerCase(); return e.length<=4 ? e.toUpperCase() : ''; };
+// Browser-unplayable video codecs (no <video> support) — used to pre-warn in the overlay.
+const UNPLAYABLE_CODECS = new Set(['hevc','h265','vp9-unsupported','mpeg2video','mpeg4','wmv3','vc1','msmpeg4v3','msmpeg4v2']);
 async function loadVideos() {
   if (src()==='sample') { videos = { needsFolder:true }; return; }
   if (videos && videos._for===src()) return;
   const r = await (await fetch('/api/videos?source='+encodeURIComponent(src()))).json();
-  r._for = src(); videos = r;
+  r._for = src(); videos = r; renderMediaSummary(); // refresh the chip even on error/needsFolder
 }
+const VIDEO_CAP = 600;
+let shownVideos = [];  // capped slice — card data-i indexes into this
 function renderVideos() {
-  if (videos?.needsFolder) { needsFolderState('🎬', 'Videos', async()=>{ await browse(); videos=null; render(); }); return; }
+  if (videos?.needsFolder) { needsFolderState('🎬', 'Videos', async()=>{ await browse(); videos=null; safeRender(); }); return; }
   if (videos?.error) { view.innerHTML = errorState(videos.error); return; }
   const st = videos.stats;
-  if (!st.count) { view.innerHTML = emptyState('🎬', 'No videos found under this folder.'); return; }
+  if (!st.count) { emptyState('🎬', 'No videos here', 'No videos were found under this folder. Try a different folder, or one that contains video files.', '📁 Choose another folder…', async()=>{ await browse(); videos=null; safeRender(); }); return; }
   const resMix = Object.entries(st.resolutions||{}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>esc(k)+' ×'+v).join(' · ');
+  shownVideos = videos.videos.slice(0, VIDEO_CAP);
   view.innerHTML = `<div class="statcard"><span><span class="b">${st.count.toLocaleString()}</span> videos</span><span class="b">${human(st.bytes)}</span><span>${fmtDur(st.totalDurationMs)}</span>${resMix?`<span>${resMix}</span>`:''}</div>
-    <div class="vgrid">${videos.videos.map((v,i)=>{
-      const res = resBadge(v.width, v.height);
+    <div class="vgrid">${shownVideos.map((v,i)=>{
+      const res = resBadge(v);
       return `<div class="vcard" data-i="${i}">
         <div class="vthumb"><img loading="lazy" src="/api/poster?path=${encodeURIComponent(v.path)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'film',textContent:'🎬'}))">
           ${v.durationMs?`<span class="dur">${fmtTime(v.durationMs)}</span>`:''}<div class="play"><span>▶</span></div></div>
         <div class="vmeta"><div class="vt" title="${esc(v.title)}">${esc(v.title)}</div>
           <div class="vb">${res?`<span class="vbadge res">${res}</span>`:''}${vext(v.path)?`<span class="vbadge">${vext(v.path)}</span>`:''}${v.videoCodec?`<span class="vbadge">${esc(v.videoCodec)}</span>`:''}</div></div>
       </div>`;
-    }).join('')}</div>`;
+    }).join('')}</div>
+    ${videos.videos.length>VIDEO_CAP?`<p class="hint">Showing first ${VIDEO_CAP} of ${videos.videos.length.toLocaleString()}.</p>`:''}`;
   view.querySelectorAll('.vcard').forEach((c)=>{ c.tabIndex = 0; c.setAttribute('role','button'); c.onclick=()=>playVideo(Number(c.dataset.i)); c.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); playVideo(Number(c.dataset.i)); } }; });
   renderMediaSummary();
 }
+function setVideoNotice(html) { $('#vnotice').innerHTML = html || ''; $('#vnotice').style.display = html ? 'flex' : 'none'; }
 function playVideo(i) {
-  const v = videos?.videos?.[i]; if (!v) return;
-  if (!audio.paused) audio.pause();
+  const v = shownVideos[i]; if (!v) return;
+  if (!audio.paused) { audio.pause(); audioPausedForVideo = true; }
+  $('#player').classList.toggle('idle', audioPausedForVideo || !audio.src); // reflect suspended audio in the mini-player
   $('#vtitle').textContent = v.title || v.path;
+  setVideoNotice('<span class="spin"></span> Loading…');
   vid.src = '/api/video?path='+encodeURIComponent(v.path);
   voverlay.classList.add('on');
+  // Pre-warn for codecs the browser's <video> element cannot decode (very common on a real video drive).
+  if (v.videoCodec && UNPLAYABLE_CODECS.has(v.videoCodec.toLowerCase())) {
+    setVideoNotice(`This format may not play in the browser (codec <b>${esc(v.videoCodec)}</b>). The original file is untouched.`);
+  }
   vid.play().catch(()=>{});
 }
-function closeVideo() { vid.pause(); vid.removeAttribute('src'); vid.load(); voverlay.classList.remove('on'); }
+let audioPausedForVideo = false;
+function closeVideo() {
+  vid.pause(); vid.removeAttribute('src'); vid.load(); voverlay.classList.remove('on'); setVideoNotice('');
+  if (audioPausedForVideo) { $('#player').classList.toggle('idle', !audio.src); } // un-dim the mini-player
+  audioPausedForVideo = false;
+}
 $('#vclose').onclick = closeVideo;
 voverlay.onclick = (e) => { if (e.target===voverlay) closeVideo(); };
 vid.addEventListener('play', () => { if (!audio.paused) audio.pause(); });
+vid.addEventListener('canplay', () => setVideoNotice(''));
+vid.addEventListener('waiting', () => { if (!$('#vnotice').textContent) setVideoNotice('<span class="spin"></span> Buffering…'); });
+vid.addEventListener('error', () => {
+  const codec = (shownVideos.find(v=>vid.src.includes(encodeURIComponent(v.path)))||{}).videoCodec || '';
+  setVideoNotice(`Can’t play this format in the browser${codec?` (codec <b>${esc(codec)}</b>)`:''}. The original file is untouched — try a desktop player.`);
+});
 document.addEventListener('keydown', (e) => { if (e.key==='Escape' && voverlay.classList.contains('on')) closeVideo(); });
 
 // ---- Mini player ----
@@ -606,7 +646,7 @@ function prevIndex(){
     return pos>0 ? shuffleOrder[pos-1] : shuffleOrder[shuffleOrder.length-1];
   }
   if(qi-1>=0) return qi-1;
-  return repeat==='all' ? queue.length-1 : 0;
+  return repeat==='all' ? queue.length-1 : -1; // mirror nextIndex: at the start with repeat off, stop
 }
 function playIndex(i){
   if(i<0||i>=queue.length) return;
@@ -620,7 +660,7 @@ function playIndex(i){
   markPlaying(); renderQueue();
 }
 $('#pp').onclick=()=>{ if(audio.paused){ if(!audio.src&&queue.length)playIndex(shuffle?(buildShuffleOrder(),shuffleOrder[0]):0); else audio.play(); } else audio.pause(); };
-$('#prev').onclick=()=>{ if(audio.currentTime>3 && !shuffle){ audio.currentTime=0; return; } playIndex(prevIndex()); };
+$('#prev').onclick=()=>{ if(audio.currentTime>3 && !shuffle){ audio.currentTime=0; return; } const p=prevIndex(); if(p<0){ if(audio.src) audio.currentTime=0; } else playIndex(p); };
 $('#next').onclick=()=>playIndex(nextIndex());
 $('#shuffle').onclick=()=>{ shuffle=!shuffle; if(shuffle) buildShuffleOrder(); reflectToggles(); savePrefs(); renderQueue(); };
 $('#repeat').onclick=()=>{ repeat = repeat==='off'?'all':repeat==='all'?'one':'off'; reflectToggles(); savePrefs(); };
@@ -648,6 +688,8 @@ document.addEventListener('keydown',(e)=>{
   if(voverlay.classList.contains('on')) return; // video overlay owns the keyboard
   if(plightbox.classList.contains('on')) return; // photo lightbox owns the keyboard
   if(isTyping(e.target)) return;
+  // Focused interactive tiles (video cards, photo tiles) and tab buttons own Space/Arrows themselves.
+  if(e.target && e.target.closest && e.target.closest('.vcard, .pgrid a[data-idx], [role="button"], [role="tab"]')) return;
   if(e.metaKey||e.ctrlKey||e.altKey) return;
   switch(e.key){
     case ' ': case 'Spacebar': e.preventDefault(); $('#pp').onclick(); break;
@@ -658,14 +700,15 @@ document.addEventListener('keydown',(e)=>{
   }
 });
 
-tabs.onclick = (e) => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; render(); } };
-// Arrow-key navigation across tabs (ARIA tablist convention).
+tabs.onclick = (e) => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; safeRender(); } };
+// Arrow-key navigation across tabs (ARIA tablist convention). stopPropagation so the global player
+// transport never also fires for the same keypress — the tab strip owns arrows when focused.
 tabs.addEventListener('keydown', (e) => {
   if (e.key!=='ArrowRight' && e.key!=='ArrowLeft') return;
   const btns = [...tabs.children]; const cur = btns.findIndex((b)=>b.dataset.tab===tab);
-  if (cur<0) return; e.preventDefault();
+  if (cur<0) return; e.preventDefault(); e.stopPropagation();
   const nxt = e.key==='ArrowRight' ? (cur+1)%btns.length : (cur-1+btns.length)%btns.length;
-  tab = btns[nxt].dataset.tab; btns[nxt].focus(); render();
+  tab = btns[nxt].dataset.tab; btns[nxt].focus(); safeRender();
 });
 $('#scan').onclick = scan; $('#browse').onclick = browse;
 $('#source').addEventListener('keydown', (e)=>{ if(e.key==='Enter') scan(); });
