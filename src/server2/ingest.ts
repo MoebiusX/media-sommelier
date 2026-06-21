@@ -386,10 +386,14 @@ export interface IngestResult {
   scanned: number;
 }
 
-export async function ingest(root: string, dbPath?: string): Promise<IngestResult> {
+export async function ingest(
+  root: string,
+  dbPath?: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<IngestResult> {
   console.log(`[ingest] scanning ${root} (tags via cache)…`);
   const t0 = Date.now();
-  const scan = await scanLibraryCached(root);
+  const scan = await scanLibraryCached(root, onProgress ? { onProgress } : {});
   console.log(
     `[ingest] scan done in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${scan.tracks.length} tracks ` +
       `(cached ${scan.cached}, scanned ${scan.scanned}, removed ${scan.removed})`,

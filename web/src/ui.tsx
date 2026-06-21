@@ -2,7 +2,13 @@ import { useState } from 'react';
 import { api } from './api';
 
 /** Inline stroke icons (no dependency). */
-export function Icon({ name, className }: { name: 'overview' | 'library' | 'chevron'; className?: string }) {
+export function Icon({
+  name,
+  className,
+}: {
+  name: 'overview' | 'library' | 'chevron' | 'organize';
+  className?: string;
+}) {
   const common = {
     width: 18,
     height: 18,
@@ -29,6 +35,14 @@ export function Icon({ name, className }: { name: 'overview' | 'library' | 'chev
       <svg {...common}>
         <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
         <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      </svg>
+    );
+  }
+  if (name === 'organize') {
+    return (
+      <svg {...common}>
+        <path d="M3 7h6l2 2h10v9a2 2 0 0 1-2 2H3z" />
+        <path d="M3 7V5a2 2 0 0 1 2-2h3l2 2" />
       </svg>
     );
   }

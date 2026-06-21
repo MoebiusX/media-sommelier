@@ -76,8 +76,59 @@ export interface AlbumDetail {
   tracks: TrackDetail[];
 }
 
+export interface Preset {
+  label: string;
+  template: string;
+}
+
+export interface ScanStatus {
+  state: 'idle' | 'running' | 'done' | 'error';
+  source?: string;
+  phase: string;
+  done: number;
+  total: number;
+  result?: { tracks: number; albums: number; artists: number };
+  error?: string;
+}
+
+export interface OrganizeStatus {
+  state: 'idle' | 'running' | 'done' | 'error';
+  source?: string;
+  dest?: string;
+  phase: string;
+  done: number;
+  total: number;
+  result?: { copied: number; skipped: number; failed: number; tagged: number; bytes: number; dest: string };
+  error?: string;
+}
+
+export interface PlanSummary {
+  actions: number;
+  collisions: number;
+  skipped: number;
+  sample: string[];
+}
+
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
+  if (!r.ok) {
+    let detail = '';
+    try {
+      detail = (await r.json())?.error ?? '';
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`${r.status} ${detail || r.statusText}`);
+  }
+  return (await r.json()) as T;
+}
+
+async function post<T>(url: string, body: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
   if (!r.ok) {
     let detail = '';
     try {
@@ -97,6 +148,17 @@ export const api = {
   artist: (name: string) => get<ArtistDetail>(`/api/artist/${encodeURIComponent(name)}`),
   album: (id: string) => get<AlbumDetail>(`/api/album/${encodeURIComponent(id)}`),
   coverUrl: (albumId: string) => `/api/cover?albumId=${encodeURIComponent(albumId)}`,
+
+  // ---- controls ----
+  presets: () => get<Record<string, Preset>>('/api/presets'),
+  pickFolder: () => get<{ path: string }>('/api/pick-folder'),
+  startScan: (source: string) => post<{ ok: boolean }>('/api/scan', { source }),
+  scanStatus: () => get<ScanStatus>('/api/scan/status'),
+  organizePlan: (b: { source: string; dest: string; preset: string }) =>
+    post<PlanSummary>('/api/organize/plan', b),
+  startOrganize: (b: { source: string; dest: string; preset: string; writeTags: boolean }) =>
+    post<{ ok: boolean }>('/api/organize/run', b),
+  organizeStatus: () => get<OrganizeStatus>('/api/organize/status'),
 };
 
 // ---- formatting helpers ----
