@@ -1,132 +1,162 @@
 # Media Sommelier
 
-A desktop app that **reads your scattered media collection, rebuilds it into usable units (albums,
-photo events, video series), and tells you interesting things about both the collection and its owner.**
+A local-first desktop-style app that **reads your scattered music collection, rebuilds it into real
+albums, and gives you the tools to play, clean, complete, and sync it** — without ever modifying your
+original files.
 
 It does not just list files. It tastes the cellar.
 
 ## The problem it solves
 
-Media collections decay. Albums get split across folders, track numbers vanish, the same song shows up
+Music collections decay. Albums get split across folders, track numbers vanish, the same song shows up
 three times under three spellings, and a whole discography gets reduced to one stray hit. Existing tools
 either re-tag in place (risky) or organize by filename (garbage in, garbage out).
 
 This is fundamentally an **entity-resolution** problem: take a pile of mistagged/scattered/duplicated
-files and reconstruct the real *releases* they belong to — using audio fingerprinting + online databases,
-with folder/tag/acoustic heuristics as fallback.
+files and reconstruct the real *releases* they belong to — from folder/tag heuristics, with MusicBrainz +
+AcoustID fingerprinting to correct and complete them. **Source files are only ever read; the index and
+any organized copies are the only things written.**
 
-### Real example (this repo's test fixture)
+## Quick start
 
-A single slice of a real drive — `X:\Music` — already shows every failure mode.
-Run the diagnostic yourself:
+Requires Node ≥ 22.
 
 ```bash
-node tools/scan-dirlisting.mjs test/fixtures/sample/sample-collection.dir.txt
+npm install
+npm run dev          # starts the API (:4178) + the web app (:5180)
 ```
 
-It finds, from **filenames alone** (146 tracks, 1.3 GB, 0% lossless):
+Open **<http://localhost:5180>**, point the **Organize** (or **Scan**) box at a music folder, and run a
+scan. It walks the folder, reconstructs albums, and indexes everything into a local SQLite catalog
+(`data/sommelier.db`) — re-scans are near-instant thanks to a tag cache keyed by path+size+mtime. Then
+browse, search (`⌘K`), play, de-dupe, organize, and sync.
 
-- **5 different naming schemes** in one folder tree (`101-led_zeppelin-rock_and_roll`,
-  `01 - MIDNIGHT  OIL - Title`, `Pink Floyd - (05)Echoes`, `Artist - Title` with no track number, …).
-- **Split releases** — *Pink Floyd – Echoes* exists as two sibling top-level folders (`Echoes Cd 1`,
-  `Echoes Cd 2`) instead of one 2-disc release; same for *Supertramp – The Very Best Of*.
-- **Orphans** — *Marc Antoine – Mediterráneo* and *The Eagles* reduced to a single track each.
-- **Lost sequence** — 71 tracks carry no track number at all (original order is gone).
-- **Duplicate candidates across discs** (Queen Platinum Collection) that must be confirmed by
-  fingerprint, not string match — note `Under Presure` vs `Under Pressure`, `Bohemian Rapsody`,
-  `I Want To Be Free` (likely *…Break Free*): typos that poison tag-only matching.
-- **Build history** — almost every file is stamped `2024-10-30` (a bulk copy event), proving file
-  mtimes record *when you copied*, not *when you acquired* — so the "classic vs new" owner axis must
-  come from release year, not the filesystem.
+Prefer the terminal? Index a folder headless, then start just the web app:
 
-The generated report lives in [`docs/SAMPLE_SCAN.md`](docs/SAMPLE_SCAN.md).
+```bash
+npm run ingest -- "Y:\"      # walk + reconstruct + index into data/sommelier.db
+npm run dev
+```
 
-## Locked design decisions
+No drive handy? The engine ships a real-data **filename-only** sample (see [the problem in
+action](#the-problem-in-action)):
 
-| Decision | Choice |
+```bash
+npm run reconstruct:sample   # rebuild albums from a bundled `dir /s` dump, offline
+```
+
+## What it does
+
+The web app is a dark, keyboard-friendly shell over a pure-TypeScript engine. Press **`⌘K` / `Ctrl-K`**
+anywhere for a command palette that searches artists, albums and tracks (Enter to open, or play a track).
+
+| Area | What you get |
 |---|---|
-| Form factor | Desktop app (Tauri / Electron), modern TypeScript |
-| File safety | **Organize into a new tree (copy)** — source files are never mutated |
-| Enrichment | Hybrid — audio fingerprint (AcoustID/Chromaprint) + MusicBrainz/Discogs/Cover Art Archive, with offline fallback |
-| Scale | Hundreds of thousands to 1M+ items |
-| Media types | Music (priority #1), images, video |
+| **Library** | Browse by **Artists** or **Albums**. The Albums grid sorts (artist / title / newest / most-tracks / largest) and filters by decade. Each album shows reconstructed tracks, a confidence + "why grouped" evidence trace, multi-disc merges, and flags (orphan, no-track-#s, compilation). |
+| **Player** | Click any track to play. Bottom transport bar with play/pause, prev/next, seek, volume, **shuffle**, **repeat**, a **queue popover**, and **back-to-album**. Full keyboard control: Space, ←/→ (±5s), Shift+←/→ (prev/next). Streams over HTTP Range so it seeks. |
+| **Search** | `⌘K` ranked search across the whole library. |
+| **Duplicates** | Finds the same song ripped multiple times and how much space the extras waste; recommends a keeper (lossless > bitrate > size). Read-only — it surfaces them, you decide. |
+| **Playlists** | Manual playlists (add a track, or a whole album) **and smart playlists** that fill themselves from rules (genre / artist / format / year / lossless, match all-or-any, sort + limit) and stay current. |
+| **Refresh** | Pull canonical title/year + **cover art** from MusicBrainz + the Cover Art Archive — per-album (preview → confirm) or a **library-wide batch** with a review queue. Resumable and cached so re-runs are cheap. |
+| **Completeness** | Diff an album against its MusicBrainz tracklist to see which tracks are **missing** (e.g. "you only have CD 1 of this 2-CD set"). |
+| **Organize** | Pick a naming scheme + destination, **simulate** schemes to see which fragments least, preview the dry-run plan, then copy into a clean `Artist/YYYY Album/Disc N/NN - Title` tree. Copies are hash-verified; tags written **onto the copies only**. |
+| **Sync** | Keep hand-picked **profiles** (Car, Audiobooks, Gym…) mirrored to external drives — additive copy, never deletes. Optional **FLAC→MP3 320k transcoding** for car stereos that can't play lossless. |
+| **Overview** | Library stats + a folder-vs-tag reconstruction comparison, plus the cover-refresh and duplicate panels. |
 
-## The local web UI
+### Safety invariants
 
-`npm run ui` serves a single-page app at <http://localhost:4178> — a dark, keyboard-friendly desktop-style
-shell over the engine. Type `sample` for the bundled filename-only demo, or **Browse** to point at a real
-folder (the sample has no actual media, so the Library, Photos, Videos and player tabs ask for a real folder
-and say so). A compact media-type summary (music / photos / videos counts) appears top-right once scanned.
+- **Source media is never modified.** Scanning only reads; organize/sync only copy; metadata corrections
+  live in the SQLite index (durable overrides), and fetched covers cache under `data/` — never written
+  back to your files.
+- **File-serving is confined.** The audio/cover/image endpoints only serve paths that resolve under a
+  scanned root *and* match an indexed track — a stray web page can't use the local server to read
+  arbitrary files off your disk.
 
-- **Library** — every track as a sortable, filterable grid (artist/title/album/genre/time/bitrate/size),
-  backed by an on-disk **tag cache** (keyed by path+size+mtime) so re-scans are near-instant. Click any row
-  to play it in the built-in **mini player**: play/pause, prev/next, seek, volume, shuffle, repeat
-  (off/all/one), an "Up Next" queue, persisted volume/shuffle/repeat, and full keyboard control
-  (Space, ←/→, ↑/↓).
-- **Albums** — the reconstruction view: scattered files rebuilt into release candidates with confidence,
-  a "why grouped" evidence trace, multi-disc merges, orphans, and duplicate candidates.
-- **Photos** — EXIF-driven gallery grouped by day, with camera/GPS stats and a full-screen **lightbox**
-  (clamped arrow-key navigation, map links for geotagged shots). Capped grid with a "showing first N" hint.
-- **Videos** — a poster grid (frames extracted on demand to `data/posters/`, never touching the source)
-  with resolution/codec/duration badges and an in-app player overlay (HTTP Range streaming, so it seeks;
-  shows a clear message when a codec can't play in the browser instead of a black frame).
-- **Insights** — collection metrics (lossless %, formats, top artists) and on-device owner profiling.
-- **Organize** — pick a naming scheme + destination, preview the dry-run plan, then copy into a clean tree
-  (originals never touched, optional MusicBrainz enrichment and tag-writing onto the copies).
+## Architecture
 
-All file-serving endpoints (`audio` / `video` / `poster` / `cover` / `image`) are **confined to scanned
-roots** — a request for any path outside the folders you actually scanned is rejected (403), so a stray web
-page can't use the local server to read arbitrary files off your disk.
+```
+  browser ──/api──▶ Vite dev server (:5180) ──proxy──▶ server2 (:4178, zero-framework Node http)
+   React app                                              │
+   (web/src)                                              ├── engine (src/engine, pure TS)
+                                                          ├── JobService (durable jobs on SQLite)
+                                                          └── better-sqlite3 → data/sommelier.db + data/*
+```
 
-## What it tells you, after a scan
+- **Engine** (`src/engine`) — pure, UI-free TypeScript: inventory walk · reconstruct (album grouping) ·
+  enrich (MusicBrainz / AcoustID / Cover Art Archive) · organize (plan → hash-verified copy → tag) ·
+  library scan / stats. Reused unchanged by the API.
+- **API** (`src/server2`) — a single Node `http` server, localhost-only by default, backed by one SQLite
+  database. Long operations (scan, organize, sync, refresh) run through a **JobService** with durable
+  state, boot recovery, and a global "what's running" view — see
+  [`docs/design/JOBS_AND_ENRICHMENT.md`](docs/design/JOBS_AND_ENRICHMENT.md).
+- **Web** (`web/`) — a React + Vite single-page app; `/api` is proxied to `:4178` so both speak one origin.
 
-- **About the collection:** dominant styles/genres, total volume, format & lossless breakdown,
-  bitrate/quality (incl. fake-FLAC / transcode detection), duplicates, album completeness.
-- **About the owner:** acquisition timeline & collecting eras, classic-vs-new %, taste profile,
-  completionist-vs-sampler, audiophile signal, "collector archetype" (computed locally — this is
-  sensitive inference and stays on-device).
+> **Running under the Claude Code preview harness?** Start the two servers as **separate** launch configs
+> (`api` → `npm run dev:api`, `web` → `npm run dev:web`), not the combined `npm run dev` — the harness
+> injects one shared `PORT` that both children would otherwise fight over. A normal `npm run dev` is fine.
+
+The legacy single-server UI (`npm run ui`, `src/server`) predates this rewrite and still hosts the
+**Photos** and **Videos** browsers (EXIF gallery, on-demand video posters) that the new app doesn't yet
+cover; the CLI (`src/cli`) exposes the engine directly.
 
 ## Repo layout
 
 ```
-src/engine/  pure-TS engine: inventory · reconstruct · enrich · organize · insights
-src/cli/     command-line interface
-src/server/  local web UI (server + single-page app)
-docs/        architecture, plan, CLI reference + generated sample scan
-tools/       standalone diagnostics (dir-listing scanner)
-test/        vitest suites + the bundled sample collection fixture
+src/engine/    pure-TS engine: inventory · reconstruct · enrich · organize · library
+src/server2/   the app's API — http server, SQLite (db.ts), ingest, JobService (jobs.ts)
+web/           React + Vite single-page app (the current UI)
+src/server/    legacy single-server UI (photos/videos browsers)
+src/cli/       command-line interface over the engine
+docs/          architecture, plan, CLI reference, and design docs (design/)
+test/          vitest suites (engine + JobService) + the bundled sample fixture
 ```
 
-## Status — engine working end-to-end (V0 + V1 enrichment)
+## CLI
 
-The engine is built, tested (**89 tests**), and proven on real audio — it has organized a real album
-end-to-end (reconstruct → enrich → copy → tag) with originals untouched. Docs:
-[`ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`CLI.md`](docs/CLI.md) ·
-[`IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+The engine is also a CLI — handy for headless indexing or scripting. `--from-listing` parses a Windows
+`dir /s` dump (how we test on real data without the drive mounted); omit it to walk a real folder.
 
 ```bash
-npm install
-npm test                                                   # 89 tests
 LISTING=test/fixtures/sample/sample-collection.dir.txt
-
-# offline, no setup — runs on the bundled real-data sample:
-npx tsx src/cli/index.ts reconstruct $LISTING --from-listing             # rebuild albums
-npx tsx src/cli/index.ts insights    $LISTING --from-listing             # collection + owner profile
-npx tsx src/cli/index.ts enrich      $LISTING --limit 8                  # MusicBrainz corrections (network)
-npx tsx src/cli/index.ts plan        $LISTING --from-listing --enrich --dest D:/Organized
-
-# on a real mounted library: omit --from-listing and point at a folder
-npx tsx src/cli/index.ts organize "X:/Music" --dest "D:/Organized" --execute --enrich --write-tags
+npm run cli -- reconstruct "$LISTING" --from-listing                 # rebuild albums (offline)
+npm run cli -- insights    "$LISTING" --from-listing                 # collection + owner profile
+npm run cli -- enrich      "$LISTING" --limit 8                      # MusicBrainz corrections (network)
+npm run cli -- organize    "X:/Music" --dest "D:/Organized" --execute --enrich --write-tags
 ```
 
-`--from-listing` parses a Windows `dir /s` dump (how we test on real data without the drive mounted);
-omit it to scan a real folder via the filesystem walker. See [`docs/CLI.md`](docs/CLI.md) for all flags
-and the `.env` setup (AcoustID application key, `fpcalc`).
+See [`docs/CLI.md`](docs/CLI.md) for all flags and the `.env` setup (AcoustID application key, `fpcalc`).
 
-**What works today:** scan (fs walk or listing) → reconstruct albums (multi-disc merge, completeness,
-orphans, duplicates) → **enrich** against MusicBrainz with an **AcoustID fingerprint fallback**
-(corrects titles/artists/years, adds MBIDs + per-track titles) → **organize** into a clean
-`Artist/YYYY Album/Disc N/NN - Title` tree, copy hash-verified and tags written **onto the copies only**
-(source is never mutated) → collection + owner insights. Non-commercial/personal use.
+### The problem in action
 
-**Deferred:** Electron desktop shell; persistent SQLite catalog; corpus-calibrated match thresholds.
+A single slice of a real drive shows every failure mode — five naming schemes in one tree, *Pink Floyd –
+Echoes* split across two sibling folders, typos that poison tag-only matching (`Bohemian Rapsody`, `Under
+Presure`), 71 tracks with no track number, and bulk-copy mtimes that record *when you copied*, not *when
+you acquired*. The bundled fixture reproduces it; the generated diagnostic lives in
+[`docs/SAMPLE_SCAN.md`](docs/SAMPLE_SCAN.md).
+
+## Design decisions
+
+| Decision | Choice |
+|---|---|
+| Form factor | Local web app (Vite + React) over a Node API; an Electron shell can host the same page + engine |
+| File safety | **Organize/sync into a new tree (copy)** — source files are never mutated |
+| Index | A local **SQLite** catalog (`better-sqlite3`); the index is a derived projection, rebuilt by a scan |
+| Enrichment | MusicBrainz + Cover Art Archive (no key) with an AcoustID fingerprint fallback (key + `fpcalc`); cached + rate-limited, offline-graceful |
+| Media types | Music (the focus); photos/videos in the legacy UI |
+
+## Status
+
+Working end-to-end and tested — **101 vitest tests** (engine + JobService). Non-commercial / personal use
+(MusicBrainz ToS).
+
+```bash
+npm test                              # 101 tests
+npm run typecheck                     # type-check the engine + API
+npm --prefix web run build            # type-check + build the web app
+```
+
+Docs: [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`CLI.md`](docs/CLI.md) ·
+[`design/JOBS_AND_ENRICHMENT.md`](docs/design/JOBS_AND_ENRICHMENT.md).
+
+**Possible next:** play history / scrobbling · replaygain / gapless · lyrics · a richer insights
+dashboard · photos/videos in the new app.
