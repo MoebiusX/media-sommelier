@@ -108,6 +108,7 @@ export function openDb(dbPath: string = DB_PATH): Database.Database {
     CREATE TABLE IF NOT EXISTS playlists (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
       name      TEXT    NOT NULL,
+      rules     TEXT,
       createdAt INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS playlist_tracks (
@@ -118,7 +119,10 @@ export function openDb(dbPath: string = DB_PATH): Database.Database {
     );
   `);
   // Lightweight migrations for columns added after a table first shipped (ALTER throws if it exists).
-  for (const alter of [`ALTER TABLE profiles ADD COLUMN transcodeTo TEXT NOT NULL DEFAULT 'none'`]) {
+  for (const alter of [
+    `ALTER TABLE profiles ADD COLUMN transcodeTo TEXT NOT NULL DEFAULT 'none'`,
+    `ALTER TABLE playlists ADD COLUMN rules TEXT`,
+  ]) {
     try {
       db.exec(alter);
     } catch {
@@ -951,6 +955,67 @@ async function albumCompleteness(
   return { matched: true, mbAlbum: rel?.title ?? al.title, expected: mbTracks.length, have: myTracks.length, missing, extra };
 }
 
+/* ---- smart playlists: a rule set evaluated live against the tracks table ---- */
+interface SmartCondition {
+  field: string;
+  op: string;
+  value: string;
+}
+interface SmartRules {
+  match?: 'all' | 'any';
+  conditions?: SmartCondition[];
+  sort?: string;
+  limit?: number;
+}
+
+/** Evaluate a smart-playlist rule set into live track rows (parameterized — values never interpolated). */
+function smartTracks(db: Database.Database, rules: SmartRules): Array<Record<string, unknown>> {
+  const clauses: string[] = [];
+  const params: Array<string | number> = [];
+  for (const c of rules.conditions ?? []) {
+    const v = String(c.value ?? '');
+    if (c.field === 'genre') {
+      clauses.push("lower(COALESCE(genre,'')) LIKE ?");
+      params.push(`%${v.toLowerCase()}%`);
+    } else if (c.field === 'artist') {
+      clauses.push("lower(COALESCE(artistName,'')) LIKE ?");
+      params.push(`%${v.toLowerCase()}%`);
+    } else if (c.field === 'album') {
+      clauses.push("lower(COALESCE(album,'')) LIKE ?");
+      params.push(`%${v.toLowerCase()}%`);
+    } else if (c.field === 'title') {
+      clauses.push('lower(title) LIKE ?');
+      params.push(`%${v.toLowerCase()}%`);
+    } else if (c.field === 'format') {
+      clauses.push('lower(path) LIKE ?');
+      params.push(`%.${v.toLowerCase()}`);
+    } else if (c.field === 'lossless') {
+      clauses.push('lossless = ?');
+      params.push(v === 'true' || v === '1' ? 1 : 0);
+    } else if (c.field === 'year') {
+      clauses.push(c.op === 'gte' ? 'year >= ?' : c.op === 'lte' ? 'year <= ?' : 'year = ?');
+      params.push(Number(v) || 0);
+    }
+  }
+  const where = clauses.length ? `WHERE ${clauses.join((rules.match ?? 'all') === 'any' ? ' OR ' : ' AND ')}` : '';
+  const order =
+    rules.sort === 'random'
+      ? 'ORDER BY RANDOM()'
+      : rules.sort === 'year'
+        ? 'ORDER BY year DESC, artistName'
+        : rules.sort === 'title'
+          ? 'ORDER BY title'
+          : 'ORDER BY artistName, album, COALESCE(discNo,1), COALESCE(trackNo,9999)';
+  const lim = rules.limit && rules.limit > 0 ? Math.min(Number(rules.limit), 2000) : 500;
+  const rows = db
+    .prepare(
+      `SELECT id, title, artistName, album, albumId, path, durationMs, bitrateKbps, lossless, sizeBytes, 0 AS position
+       FROM tracks ${where} ${order} LIMIT ${lim}`,
+    )
+    .all(...params) as Array<{ lossless: number; [k: string]: unknown }>;
+  return rows.map((t) => ({ ...t, lossless: t.lossless === 1 }));
+}
+
 /* ---- batch refresh: a JobService job ('refresh') that sweeps the library proposing covers/metadata.
  * Each proposal is emitted as a durable job_item, so the review queue survives a restart. ---- */
 interface RefreshProposal {
@@ -1673,26 +1738,40 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     return json(res, ok ? 200 : 409, { ok });
   }
 
-  // ---- listening playlists ----
+  // ---- listening playlists (manual + smart) ----
   if (path === '/api/playlists' && method === 'GET') {
+    const rows = db.prepare('SELECT id, name, rules, createdAt FROM playlists ORDER BY createdAt ASC, id ASC').all() as Array<{
+      id: number;
+      name: string;
+      rules: string | null;
+      createdAt: number;
+    }>;
     return json(
       res,
       200,
-      db
-        .prepare(
-          `SELECT p.id, p.name, p.createdAt,
-            (SELECT COUNT(*) FROM playlist_tracks pt JOIN tracks t ON t.path = pt.trackPath WHERE pt.playlistId = p.id) AS trackCount
-           FROM playlists p ORDER BY p.createdAt ASC, p.id ASC`,
-        )
-        .all(),
+      rows.map((p) => {
+        const smart = p.rules ? (JSON.parse(p.rules) as SmartRules) : null;
+        const trackCount = smart
+          ? smartTracks(db, smart).length
+          : (db.prepare('SELECT COUNT(*) c FROM playlist_tracks pt JOIN tracks t ON t.path = pt.trackPath WHERE pt.playlistId = ?').get(p.id) as { c: number }).c;
+        return { id: p.id, name: p.name, createdAt: p.createdAt, smart: !!smart, rules: smart, trackCount };
+      }),
     );
   }
   if (path === '/api/playlists' && method === 'POST') {
     const b = await readBody(req);
     const name = String(b.name ?? '').trim();
     if (!name) return json(res, 400, { ok: false, error: 'no_name' });
-    const info = db.prepare('INSERT INTO playlists(name, createdAt) VALUES(?,?)').run(name, Date.now());
+    const rules = b.rules && typeof b.rules === 'object' ? JSON.stringify(b.rules) : null;
+    const info = db.prepare('INSERT INTO playlists(name, rules, createdAt) VALUES(?,?,?)').run(name, rules, Date.now());
     return json(res, 200, { ok: true, id: Number(info.lastInsertRowid) });
+  }
+  if (path === '/api/playlists/rules' && method === 'POST') {
+    const b = await readBody(req);
+    const id = Number(b.id);
+    if (!id) return json(res, 400, { ok: false, error: 'no_id' });
+    db.prepare('UPDATE playlists SET rules=? WHERE id=?').run(b.rules && typeof b.rules === 'object' ? JSON.stringify(b.rules) : null, id);
+    return json(res, 200, { ok: true });
   }
   if (path === '/api/playlists/rename' && method === 'POST') {
     const b = await readBody(req);
@@ -1712,18 +1791,23 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
   }
   if (path === '/api/playlist' && method === 'GET') {
     const id = Number(url.searchParams.get('id'));
-    const p = db.prepare('SELECT id, name, createdAt FROM playlists WHERE id=?').get(id) as
-      | { id: number; name: string; createdAt: number }
+    const p = db.prepare('SELECT id, name, rules, createdAt FROM playlists WHERE id=?').get(id) as
+      | { id: number; name: string; rules: string | null; createdAt: number }
       | undefined;
     if (!p) return json(res, 404, { ok: false, error: 'playlist_not_found' });
-    const tracks = db
-      .prepare(
-        `SELECT t.id, t.title, t.artistName, t.album, t.albumId, t.path, t.durationMs, t.bitrateKbps, t.lossless, t.sizeBytes, pt.position
-         FROM playlist_tracks pt JOIN tracks t ON t.path = pt.trackPath
-         WHERE pt.playlistId = ? ORDER BY pt.position ASC`,
-      )
-      .all(id) as Array<{ lossless: number; [k: string]: unknown }>;
-    return json(res, 200, { ...p, tracks: tracks.map((t) => ({ ...t, lossless: t.lossless === 1 })) });
+    const smart = p.rules ? (JSON.parse(p.rules) as SmartRules) : null;
+    const tracks = smart
+      ? smartTracks(db, smart)
+      : (
+          db
+            .prepare(
+              `SELECT t.id, t.title, t.artistName, t.album, t.albumId, t.path, t.durationMs, t.bitrateKbps, t.lossless, t.sizeBytes, pt.position
+               FROM playlist_tracks pt JOIN tracks t ON t.path = pt.trackPath
+               WHERE pt.playlistId = ? ORDER BY pt.position ASC`,
+            )
+            .all(id) as Array<{ lossless: number; [k: string]: unknown }>
+        ).map((t) => ({ ...t, lossless: t.lossless === 1 }));
+    return json(res, 200, { id: p.id, name: p.name, createdAt: p.createdAt, smart: !!smart, rules: smart, tracks });
   }
   if (path === '/api/playlist/add' && method === 'POST') {
     const b = await readBody(req);

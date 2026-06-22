@@ -973,6 +973,51 @@ body {
   display: flex;
   gap: 10px;
 }
+
+/* smart-playlist rule builder */
+.rule-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rb-match {
+  font-size: 13.5px;
+  color: var(--text-dim);
+}
+.sb-input.inline {
+  display: inline-block;
+  width: auto;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.rb-cond {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.rb-cond .sb-input:first-child {
+  flex: none;
+  width: 130px;
+}
+.rb-cond .sb-input {
+  flex: 1;
+  min-width: 0;
+}
+.rb-foot {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.rb-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+}
 .trk:first-child {
   border-top: none;
 }

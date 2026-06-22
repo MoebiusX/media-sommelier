@@ -137,11 +137,25 @@ export interface SimulateResult {
   recommended: string | null;
 }
 
+export interface SmartCondition {
+  field: string;
+  op: string;
+  value: string;
+}
+export interface SmartRules {
+  match: 'all' | 'any';
+  conditions: SmartCondition[];
+  sort?: string;
+  limit?: number;
+}
+
 export interface PlaylistSummary {
   id: number;
   name: string;
   createdAt: number;
   trackCount: number;
+  smart: boolean;
+  rules: SmartRules | null;
 }
 export interface PlaylistTrack {
   id: number;
@@ -160,6 +174,8 @@ export interface PlaylistDetail {
   id: number;
   name: string;
   createdAt: number;
+  smart: boolean;
+  rules: SmartRules | null;
   tracks: PlaylistTrack[];
 }
 
@@ -323,7 +339,10 @@ export const api = {
 
   // ---- playlists ----
   playlists: () => get<PlaylistSummary[]>('/api/playlists'),
-  createPlaylist: (name: string) => post<{ ok: boolean; id: number }>('/api/playlists', { name }),
+  createPlaylist: (name: string, rules?: SmartRules) =>
+    post<{ ok: boolean; id: number }>('/api/playlists', { name, ...(rules ? { rules } : {}) }),
+  updatePlaylistRules: (id: number, rules: SmartRules) =>
+    post<{ ok: boolean }>('/api/playlists/rules', { id, rules }),
   renamePlaylist: (id: number, name: string) => post<{ ok: boolean }>('/api/playlists/rename', { id, name }),
   deletePlaylist: (id: number) => post<{ ok: boolean }>('/api/playlists/delete', { id }),
   playlist: (id: number) => get<PlaylistDetail>(`/api/playlist?id=${id}`),
