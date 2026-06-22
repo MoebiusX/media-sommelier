@@ -1,0 +1,137 @@
+# STATUS — media-sommelier build tree
+
+> The doctrine's HANDOFF artifact. The plan is a tree: **Phases → Tasks → Leaves**.
+> Each node is `todo` / `in-progress` / `done(gate passed)`. A node is `done` **only** when its
+> named GATE command was actually run green — never on inspection. Update this file at every checkpoint
+> so a fresh session resumes without re-deriving the plan.
+>
+> **Last full-tree verification: 2026-06-22** — `npm test` → 101 passed (15 files); `npm run typecheck`
+> clean; `npm run reconstruct:sample` end-to-end OK; `npm run build:web` clean.
+>
+> **Two numbering axes, don't conflate them:** `P0–P8` below are the doctrine's *architectural layer*
+> phases (the `src/engine` layout). `V0–V3` in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)
+> are *value milestones*. The frontier (§ Frontier) maps the plan's deferred V1/V2 items onto new nodes.
+
+## Invariants (inherited verbatim by every node)
+
+- Source media is READ-ONLY. Only writes: SQLite under `data/`, and the organized COPY tree.
+- Pure engine: `src/engine/` has zero http/Electron/DOM imports. CLI + tests + server reuse it verbatim.
+- Offline-first: reconstruction works with zero network. Enrichment is a later, optional, graceful-degrade layer.
+- TS strict + `noUncheckedIndexedAccess`, Node ≥22, ESM/NodeNext, tsx + vitest.
+- Reconstruction confidence is offline-capped ≤ 0.75; every grouping carries a "why grouped" evidence trace.
+- Stack is locked: music-metadata (read), node-taglib-sharp (write copies only), better-sqlite3 (WAL). No new deps without asking.
+
+---
+
+## The tree
+
+Legend: `[x]` done(gate passed) · `[~]` in-progress · `[ ]` todo
+
+### P0 — Substrate · `done(gate passed)`
+Shared domain vocabulary + string helpers every phase imports.
+- Scope: `src/engine/types.ts`, `src/engine/text.ts`, `src/engine/index.ts` (barrel), `test/text.test.ts`
+- Interface: imports nothing → exports the `types.ts` domain types + `text.ts` helpers (`normalize`, `titleKey`, `stripDiscTokens`, `plausibleDurationMs`, …)
+- Gate: `npm test -- text` (21) + `npm run typecheck` → **green 2026-06-22**
+  - [x] P0Task1 — `types.ts` (typecheck-gated)
+  - [x] P0Task2 — `text.ts` (`text.test.ts`)
+
+### P1 — Inventory · `done(gate passed)`
+Tree or `dir /s` listing → `MediaFileRecord[]`, read-only.
+- Scope: `src/engine/inventory/**`, `test/wait.test.ts`
+- Interface: imports `./types.js`, `./text.js` → exports `parseDirListing`, `walk/walkToArray/waitForPath`, `readTags/TagInfo`, `readCover/Cover`
+- Gate: `npm test -- wait` (2) → **green 2026-06-22**
+  - [x] P1Task1 — `dirListing.ts` · [x] P1Task2 — `walk.ts` (`wait.test.ts`) · [x] P1Task3 — `tags.ts` · [x] P1Task4 — `cover.ts`
+
+### P2 — Reconstruct (the heart) · `done(gate passed)`
+`MediaFileRecord[]` → `ReconstructionReport`; confidence ≤ 0.75; evidence trace per candidate.
+- Scope: `src/engine/reconstruct/**`, `test/reconstruct.test.ts`, `test/reconstruct-flags.test.ts`
+- Interface: imports `./types.js`, `./text.js` → exports `parseName`, `reconstruct`
+- Gate: `npm test -- reconstruct` (14+6) → **green 2026-06-22**; named fixtures verified via `reconstruct:sample` (Pink Floyd *Echoes* sibling-disc re-merge, Supertramp `no-track-numbers`, Eagles/Marc Antoine `orphan`)
+  - [x] P2Task1 — `parseName.ts` · [x] P2Task2 — `reconstruct.ts`
+
+### P3 — Organize (the COPY-write spine) · `done(gate passed)`
+`AlbumCandidate[]` → idempotent `OrganizePlan` → copy+tag into `Artist/Album/NN - Track`. **Only phase that writes files.**
+- Scope: `src/engine/organize/**`, `test/organize.test.ts`, `test/organize-multidisc.test.ts`, `test/execute.test.ts`
+- Interface: imports `./types.js`, `./text.js` → exports `planOrganize/sanitizeSegment/ORGANIZE_PRESETS/OrganizePlan/…`, `writeTrackTags/TrackTags`, `executePlan/ExecuteReport/…`
+- **Load-bearing HALT:** never writes/renames/deletes a *source* file — dest copy + SQLite only.
+- Gate: `npm test -- organize` (6+8) + `npm test -- execute` (4) → **green 2026-06-22**
+  - [x] P3Task1 — `plan.ts` · [x] P3Task2 — `tag.ts` · [x] P3Task3 — `execute.ts`
+
+### P4 — Library scan & media stats · `done(gate passed)`
+Browseable catalog + per-format stats; photo/video read paths.
+- Scope: `src/engine/library/**`, `test/library-stats.test.ts`, `test/video-stats.test.ts`
+- Interface: imports `./types.js`, `./inventory/tags.js` → exports `scanLibrary/Track`, `scanLibraryCached`, `computeLibraryStats/LibraryStats`, photo/video readers + stats
+- Gate: `npm test -- library-stats` (3) + `npm test -- video-stats` (7) → **green 2026-06-22**
+  - [x] P4Task1 `scan.ts` · [x] P4Task2 `catalog.ts` · [x] P4Task3 `stats.ts` · [x] P4Task4 `photos.ts` · [x] P4Task5 `videos.ts`
+
+### P5 — Insights & Report · `done(gate passed)`
+Collection insights + owner profiling; static HTML report.
+- Scope: `src/engine/insights/**`, `src/engine/report/**`, `test/insights.test.ts`
+- Interface: imports `./types.js`; consumes P2's `ReconstructionReport` → exports `computeInsights/InsightsReport/OwnerProfile/…`, `renderHtml`
+- Gate: `npm test -- insights` (6) → **green 2026-06-22**
+  - [x] P5Task1 — `insights/insights.ts` · [x] P5Task2 — `report/html.ts`
+
+### P6 — Enrich (later, optional online layer) · `done(gate passed)`
+Fingerprint + AcoustID + MusicBrainz lift for ambiguous candidates; graceful-degrade to offline.
+- Scope: `src/engine/enrich/**`, `test/acoustid.test.ts`, `test/match.test.ts`, `test/clients.test.ts`, `test/enrich.test.ts`
+- Interface: imports `./types.js` → exports `fingerprintFile/fpcalc*`, `AcoustIdClient`, `MusicBrainzClient/extractTracklist`, `selectBestRelease/scoreRelease`, `enrichCandidate/enrichTop`
+- **Load-bearing HALT:** no network call in the core reconstruction path — P2 must pass with the network unplugged.
+- Gate: `npm test -- match acoustid clients enrich` (5+3+5+5) → **green 2026-06-22** (canned responses, no live network)
+  - [x] P6Task1 `fpcalc.ts` · [x] P6Task2 `acoustid.ts` · [x] P6Task3 `musicbrainz.ts` · [x] P6Task4 `match.ts` · [x] P6Task5 `enrich.ts`
+
+### P7 — CLI (composition root) · `done(gate passed)`
+Wire inventory → reconstruct → (enrich) → organize over the engine, verbatim reuse.
+- Scope: `src/cli/**`
+- Interface: imports `../engine/index.js` only → exports the `sommelier` bin
+- Gate: `npm run reconstruct:sample` (committed `sample-collection.dir.txt`, end-to-end, no source touched) → **green 2026-06-22**
+  - [x] P7Task1 — `cli/index.ts`
+
+### P8 — App server + Web UI · `done(gate passed)`
+Local API (jobs, ingest, SQLite catalog) + React app (library, playlists, duplicates, organize, drives, player).
+- Scope: `src/server2/**`, `src/server/**` (legacy), `web/**`, `test/jobs.test.ts`
+- Interface: server2 imports `../engine/index.js` + `better-sqlite3`; `web/src/api.ts` talks to server2 over HTTP (no engine import in the browser) → exports `JobService` + HTTP routes; the React app
+- Gate: `npm test -- jobs` (6) + `npm run build:web` (44 modules, clean) → **green 2026-06-22**
+  - [x] P8Task1 `server2/db.ts` · [x] P8Task2 `server2/jobs.ts` (`jobs.test.ts`) · [x] P8Task3 `server2/ingest.ts` · [x] P8Task4 `server2/organize-worker.ts` · [x] P8Task5 `server2/index.ts` · [x] P8Task6 `server/index.ts` (legacy) · [x] P8Task7 `web/**` (`build:web`)
+
+---
+
+## Scope-coverage audit
+
+- Union of P0–P8 covers all of `src/engine/**`, `src/cli/**`, `src/server*/**`, `web/**`, and every `test/*.test.ts`. Strict subset of root scope; no leaf claimed twice.
+- **Shared seam (controlled, additive):** `src/engine/index.ts` is created by P0 and append-only-extended by P1–P6 (each phase adds only its own `export` block). Not a conflicting overlap.
+- **Deliberately not a phase:** root scaffolding (`package.json`, `tsconfig.json`, vitest config, `test/fixtures/**`) is root-owned, established before P0. `dist/**` (output) and `docs/**` (not in build) are out of scope.
+
+---
+
+## Frontier — `todo` (next decompositions)
+
+The offline spine + online enrichment + app are all `done`. The open work is the plan's deferred items and
+the drive-sync follow-ups. Each is an undecomposed node — decompose ONE, review, then execute its children.
+
+- [ ] **F1 — CUE / single-file album images: detect & quarantine** (plan §6.7, §12). Out-of-scope to *split*
+      (would re-encode → violates read-only source). Engine must detect `.cue`+single-FLAC and quarantine so
+      they're never silently mistagged. New scope likely `src/engine/inventory/**` + a `quarantine` flag on `CandidateFlag`.
+- [ ] **F2 — Integrity gate: truncated/partial-file detection** (plan §6.5). Declared-vs-decodable duration /
+      container-EOF check; exclude partials as match evidence (a half-download yields confident-wrong AcoustID).
+- [ ] **F3 — Spectral fake-FLAC / transcode tiebreak** (plan §6.4, §8). Cheap spectral-cutoff check folded into
+      lossless-vs-lossy best-copy selection so the copy step doesn't trust the `.flac` extension. Opt-in.
+- [ ] **F4 — Scale hardening, staged 10k → 100k → 1M** (plan §9 V1.4). Content-hash move-reattachment
+      (decisions survive on FAT/exFAT/SMB), per-component memory budget + enforcing watchdog, real-ETA I/O model.
+- [ ] **F5 — Provenance: append-only `MetadataClaim` + materialized `ResolvedField`** (plan §5, deferred). Only
+      worth it once multiple sources compete to overwrite each other; pairs with a per-source/per-field license ledger (§10).
+- [ ] **F6 — Drive-sync v2** (memory: [drive-sync-roadmap](memory)). Deferred from shipped v1 (hand-picked,
+      additive-only): transcoding-on-sync, smart-rule selection, true-mirror (deletion propagation).
+
+## Next node
+
+**Recommended: decompose F2 (integrity gate)** — smallest, highest-leverage, and it *protects* the already-green
+P2/P6 gates (a truncated file currently can poison a cluster's match). It touches `src/engine/inventory` +
+`src/engine/enrich/enrich.ts` with a focused new test, and it adds no dependency or network. Alternative if you
+want user-visible value first: **F1 (CUE quarantine)**.
+
+## Open HALT questions
+
+- **None blocking.** All gates green; no source-write path is in question; no new dep/framework/network is pending.
+- Watch for HALT during F-node work: F1/F2 must only *flag/quarantine*, never rewrite source; F3 must stay opt-in
+  and off the core reconstruction path; F5's license ledger gates any future commercial posture (plan §3, §10) —
+  that commercial vs non-commercial decision is still **open** and must be made before a license-bearing build.
