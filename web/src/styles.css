@@ -1133,6 +1133,25 @@ select.sb-input {
 .err-text {
   color: var(--danger);
 }
+.warn-text {
+  color: var(--warn);
+}
+.cmpl-missing {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  columns: 2;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+@media (max-width: 640px) {
+  .cmpl-missing {
+    columns: 1;
+  }
+}
+.cmpl-missing li {
+  margin-bottom: 3px;
+  break-inside: avoid;
+}
 
 /* ---------- Organize form ---------- */
 .panel.form {

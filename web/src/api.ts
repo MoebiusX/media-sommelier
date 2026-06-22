@@ -248,6 +248,16 @@ export interface RefreshPreview {
   coverFetched: boolean;
 }
 
+export interface Completeness {
+  ok: boolean;
+  matched: boolean;
+  mbAlbum?: string;
+  expected?: number;
+  have?: number;
+  missing?: Array<{ disc: number; position: number; title: string }>;
+  extra?: Array<{ title: string; trackNo: number | null; discNo: number | null }>;
+}
+
 export interface RefreshProposal {
   albumId: string;
   artistName: string;
@@ -353,6 +363,7 @@ export const api = {
   applyRefresh: (b: { albumId: string; title?: string; year?: number; cover?: boolean; mbid?: string }) =>
     post<{ ok: boolean }>('/api/album/refresh/apply', b),
   cancelRefresh: (albumId: string) => post<{ ok: boolean }>('/api/album/refresh/cancel', { albumId }),
+  checkCompleteness: (albumId: string) => post<Completeness>('/api/album/completeness', { albumId }),
   pendingCoverUrl: (albumId: string) =>
     `/api/album/refresh/cover?albumId=${encodeURIComponent(albumId)}&pending=1`,
   refreshCandidates: () => get<{ missing: number; attempted: number; total: number }>('/api/refresh/candidates'),

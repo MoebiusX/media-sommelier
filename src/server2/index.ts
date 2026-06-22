@@ -30,6 +30,8 @@ import {
   MusicBrainzClient,
   selectBestRelease,
   artistCreditName,
+  extractTracklist,
+  normalize,
   ORGANIZE_PRESETS,
   type OrganizePlan,
   type OrganizeAction,
@@ -909,6 +911,46 @@ async function applyRefresh(
   }
 }
 
+/** Title key tolerant of "(Remaster)"/"[Live]" suffixes, for matching a local track to a MB tracklist. */
+const trackKey = (s: string | null): string => normalize((s ?? '').replace(/[([{][^)\]}]*[)\]}]/g, ' '));
+
+/**
+ * Compare an album against its MusicBrainz release tracklist to find MISSING tracks (the SOTA
+ * "complete your albums" view). Uses the enrich ledger's mbid when present, else a lookup; then the
+ * release's full tracklist (MB-cached). Read-only — surfaces gaps, downloads nothing.
+ */
+async function albumCompleteness(
+  db: Database.Database,
+  albumId: string,
+): Promise<{
+  matched: boolean;
+  mbAlbum?: string;
+  expected?: number;
+  have?: number;
+  missing?: Array<{ disc: number; position: number; title: string }>;
+  extra?: Array<{ title: string; trackNo: number | null; discNo: number | null }>;
+} | null> {
+  const al = db.prepare('SELECT id, title, artistName, trackCount FROM albums WHERE id = ?').get(albumId) as
+    | { id: string; title: string; artistName: string; trackCount: number }
+    | undefined;
+  if (!al) return null;
+  let mbid = (db.prepare('SELECT mbid FROM album_enrich WHERE albumId = ? AND matched = 1').get(albumId) as { mbid: string | null } | undefined)?.mbid ?? null;
+  if (!mbid) {
+    const m = await cachedLookup(db, albumId, { artistName: al.artistName, title: al.title, trackCount: al.trackCount }, false);
+    mbid = m?.mbid ?? null;
+  }
+  if (!mbid) return { matched: false };
+  const rel = await mbClient.getRelease(mbid);
+  const mbTracks = extractTracklist(rel);
+  if (mbTracks.length === 0) return { matched: false };
+  const myTracks = db.prepare('SELECT title, trackNo, discNo FROM tracks WHERE albumId = ?').all(albumId) as Array<{ title: string; trackNo: number | null; discNo: number | null }>;
+  const have = new Set(myTracks.map((t) => trackKey(t.title)));
+  const mbKeys = new Set(mbTracks.map((t) => trackKey(t.title)));
+  const missing = mbTracks.filter((mb) => !have.has(trackKey(mb.title)));
+  const extra = myTracks.filter((t) => !mbKeys.has(trackKey(t.title))).map((t) => ({ title: t.title, trackNo: t.trackNo, discNo: t.discNo }));
+  return { matched: true, mbAlbum: rel?.title ?? al.title, expected: mbTracks.length, have: myTracks.length, missing, extra };
+}
+
 /* ---- batch refresh: a JobService job ('refresh') that sweeps the library proposing covers/metadata.
  * Each proposal is emitted as a durable job_item, so the review queue survives a restart. ---- */
 interface RefreshProposal {
@@ -1747,6 +1789,14 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
     const p = pendingCoverPath(String(b.albumId ?? ''));
     if (existsSync(p)) await unlink(p).catch(() => {});
     return json(res, 200, { ok: true });
+  }
+  if (path === '/api/album/completeness' && method === 'POST') {
+    const b = await readBody(req);
+    const albumId = String(b.albumId ?? '');
+    if (!albumId) return json(res, 400, { ok: false, error: 'no_albumId' });
+    const r = await albumCompleteness(db, albumId);
+    if (!r) return json(res, 404, { ok: false, error: 'album_not_found' });
+    return json(res, 200, { ok: true, ...r });
   }
 
   // ---- batch refresh (library sweep → review queue), backed by the JobService ----

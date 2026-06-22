@@ -10,6 +10,7 @@ import {
   type ProfileSummary,
   type PlaylistSummary,
   type RefreshPreview,
+  type Completeness,
 } from './api';
 import { Cover, ErrorState, FlagBadges, Icon, Loading } from './ui';
 import { usePlayer, type PlayerTrack } from './player';
@@ -496,6 +497,84 @@ function RefreshPanel({
   );
 }
 
+/* ---------------- Album completeness (vs MusicBrainz tracklist) ---------------- */
+function CompletenessPanel({ albumId, onClose }: { albumId: string; onClose: () => void }) {
+  const [data, setData] = useState<Completeness | null>(null);
+  const [showAll, setShowAll] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .checkCompleteness(albumId)
+      .then((d) => alive && setData(d))
+      .catch(() => alive && setData({ ok: false, matched: false }));
+    return () => {
+      alive = false;
+    };
+  }, [albumId]);
+
+  if (!data) {
+    return (
+      <div className="refresh-panel">
+        <div className="sb-line">
+          <span className="spinner-sm" /> Checking against MusicBrainz…
+        </div>
+      </div>
+    );
+  }
+  const complete = data.matched && (data.have ?? 0) >= (data.expected ?? 0);
+  const missingCount = (data.expected ?? 0) - (data.have ?? 0);
+  return (
+    <div className="refresh-panel">
+      {!data.matched ? (
+        <div className="refresh-nomatch">
+          <span>No MusicBrainz match — can't check completeness.</span>
+          <button className="btn ghost" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      ) : complete ? (
+        <div className="refresh-nomatch">
+          <span>
+            <b className="ok-text">✓ Looks complete</b> — {fmtInt(data.have!)} of {fmtInt(data.expected!)} tracks
+            match “{data.mbAlbum}”.
+          </span>
+          <button className="btn ghost" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="refresh-head">
+            <span className="refresh-title">
+              Missing <b className="warn-text">{fmtInt(missingCount)}</b> of {fmtInt(data.expected!)} tracks{' '}
+              <span className="muted">vs “{data.mbAlbum}”</span>
+            </span>
+          </div>
+          <ul className="cmpl-missing">
+            {(showAll ? data.missing! : data.missing!.slice(0, 8)).map((m, i) => (
+              <li key={i}>
+                {m.disc > 1 ? `${m.disc}-` : ''}
+                {m.position}. {m.title}
+              </li>
+            ))}
+          </ul>
+          <div className="refresh-actions">
+            {data.missing!.length > 8 && !showAll && (
+              <button className="btn ghost" onClick={() => setShowAll(true)}>
+                Show all {fmtInt(data.missing!.length)}
+              </button>
+            )}
+            <button className="btn ghost" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- Album page (tracks) ---------------- */
 function AlbumPage({
   id,
@@ -511,11 +590,13 @@ function AlbumPage({
   const [reloadKey, setReloadKey] = useState(0);
   const [coverVersion, setCoverVersion] = useState(0);
   const [refreshOpen, setRefreshOpen] = useState(false);
+  const [completenessOpen, setCompletenessOpen] = useState(false);
 
   // Clear to the loading state only when navigating to a different album (not on a refresh re-fetch).
   useEffect(() => {
     setData(null);
     setRefreshOpen(false);
+    setCompletenessOpen(false);
   }, [id]);
 
   useEffect(() => {
@@ -643,6 +724,13 @@ function AlbumPage({
                 >
                   ⟲ Refresh
                 </button>
+                <button
+                  className="btn ghost"
+                  onClick={() => setCompletenessOpen((v) => !v)}
+                  title="Check this album against its MusicBrainz tracklist for missing tracks"
+                >
+                  ✓ Completeness
+                </button>
               </div>
               {refreshOpen && (
                 <RefreshPanel
@@ -654,6 +742,9 @@ function AlbumPage({
                     setReloadKey((k) => k + 1);
                   }}
                 />
+              )}
+              {completenessOpen && (
+                <CompletenessPanel albumId={data.id} onClose={() => setCompletenessOpen(false)} />
               )}
               {data.evidence.length > 0 && (
                 <ul className="evidence">
