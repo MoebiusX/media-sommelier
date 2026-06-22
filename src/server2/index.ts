@@ -1298,6 +1298,21 @@ function artists(db: Database.Database, res: ServerResponse): void {
   json(res, 200, rows);
 }
 
+/** GET /api/albums — every reconstructed album (for the browse-all grid). Sorted/filtered client-side. */
+function allAlbums(db: Database.Database, res: ServerResponse): void {
+  const rows = db
+    .prepare(
+      `SELECT id, title, artistName, year, coverPath, trackCount, flags, confidence, lossless, discCount, sizeBytes
+       FROM albums ORDER BY artistName ASC, year ASC, title ASC`,
+    )
+    .all() as Array<{ flags: string; lossless: number; [k: string]: unknown }>;
+  json(
+    res,
+    200,
+    rows.map((a) => ({ ...a, flags: JSON.parse(a.flags), lossless: a.lossless === 1 })),
+  );
+}
+
 /** GET /api/artist/:name — one artist with their reconstructed albums. */
 function artist(db: Database.Database, res: ServerResponse, name: string): void {
   const a = db.prepare('SELECT name, trackCount, albumCount FROM artists WHERE name = ?').get(name) as
@@ -1845,6 +1860,7 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
   // ---- read endpoints ----
   if (path === '/api/overview') return overview(db, res);
   if (path === '/api/artists') return artists(db, res);
+  if (path === '/api/albums') return allAlbums(db, res);
   if (path === '/api/search') return search(db, res, url.searchParams.get('q') ?? '');
   if (path === '/api/duplicates') return duplicates(db, res);
   if (path === '/api/cover') return cover(db, res, url.searchParams);

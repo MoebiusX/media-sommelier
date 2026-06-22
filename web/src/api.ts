@@ -37,6 +37,11 @@ export interface AlbumSummary {
   discCount: number;
 }
 
+export interface BrowseAlbum extends AlbumSummary {
+  artistName: string;
+  sizeBytes: number;
+}
+
 export interface ArtistDetail {
   name: string;
   trackCount: number;
@@ -312,6 +317,7 @@ export const api = {
   health: () => get<{ ok: boolean; db?: string }>('/api/health'),
   overview: () => get<Overview>('/api/overview'),
   artists: () => get<ArtistSummary[]>('/api/artists'),
+  allAlbums: () => get<BrowseAlbum[]>('/api/albums'),
   search: (q: string) => get<SearchResults>(`/api/search?q=${encodeURIComponent(q)}`),
   duplicates: () => get<DuplicatesResult>('/api/duplicates'),
 

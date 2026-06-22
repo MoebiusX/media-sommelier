@@ -713,6 +713,63 @@ body {
   color: var(--text);
 }
 
+/* ---------- Library tabs (Artists | Albums) ---------- */
+.lib-tabs {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  margin-bottom: 16px;
+}
+.lib-tabs button {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 540;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.lib-tabs button.on {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.albums-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.decade-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+.decade {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+}
+.decade:hover {
+  border-color: var(--accent);
+}
+.decade.on {
+  background: var(--accent-soft);
+  border-color: rgba(124, 156, 255, 0.4);
+  color: var(--text);
+}
+
 /* ---------- Album grid ---------- */
 .album-grid {
   display: grid;

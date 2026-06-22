@@ -7,6 +7,7 @@ import {
   type AlbumSummary,
   type ArtistDetail,
   type ArtistSummary,
+  type BrowseAlbum,
   type ProfileSummary,
   type PlaylistSummary,
   type RefreshPreview,
@@ -18,6 +19,7 @@ import { usePlayer, type PlayerTrack } from './player';
 /** Library coordinates which sub-view is shown via lightweight local state. */
 export type LibraryView =
   | { kind: 'artists' }
+  | { kind: 'albums' }
   | { kind: 'artist'; name: string }
   | { kind: 'album'; id: string; artistName?: string };
 
@@ -29,8 +31,124 @@ export default function Library({
   navigate: (v: LibraryView) => void;
 }) {
   if (view.kind === 'artists') return <ArtistsList navigate={navigate} />;
+  if (view.kind === 'albums') return <AlbumsBrowse navigate={navigate} />;
   if (view.kind === 'artist') return <ArtistPage name={view.name} navigate={navigate} />;
   return <AlbumPage id={view.id} fallbackArtist={view.artistName} navigate={navigate} />;
+}
+
+/** Artists | Albums switch shown atop both browse views. */
+function LibraryTabs({ active, navigate }: { active: 'artists' | 'albums'; navigate: (v: LibraryView) => void }) {
+  return (
+    <div className="lib-tabs">
+      <button className={active === 'artists' ? 'on' : ''} onClick={() => navigate({ kind: 'artists' })}>
+        Artists
+      </button>
+      <button className={active === 'albums' ? 'on' : ''} onClick={() => navigate({ kind: 'albums' })}>
+        Albums
+      </button>
+    </div>
+  );
+}
+
+/* ---------------- Albums browse (all albums, sortable/filterable) ---------------- */
+const ALBUM_PAGE = 120;
+function AlbumsBrowse({ navigate }: { navigate: (v: LibraryView) => void }) {
+  const [albums, setAlbums] = useState<BrowseAlbum[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState<'artist' | 'title' | 'year' | 'tracks' | 'size'>('artist');
+  const [decade, setDecade] = useState<number | null>(null);
+  const [limit, setLimit] = useState(ALBUM_PAGE);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .allAlbums()
+      .then((d) => alive && setAlbums(d))
+      .catch((e) => alive && setError(String(e.message ?? e)));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const decades = useMemo(() => {
+    if (!albums) return [];
+    const s = new Set<number>();
+    for (const a of albums) if (a.year) s.add(Math.floor(a.year / 10) * 10);
+    return [...s].sort((a, b) => a - b);
+  }, [albums]);
+
+  const filtered = useMemo(() => {
+    if (!albums) return [];
+    const needle = q.trim().toLowerCase();
+    let r = albums;
+    if (needle) r = r.filter((a) => a.title.toLowerCase().includes(needle) || a.artistName.toLowerCase().includes(needle));
+    if (decade != null) r = r.filter((a) => a.year != null && a.year >= decade && a.year < decade + 10);
+    const cmp: Record<string, (a: BrowseAlbum, b: BrowseAlbum) => number> = {
+      artist: (a, b) => a.artistName.localeCompare(b.artistName) || (a.year ?? 0) - (b.year ?? 0) || a.title.localeCompare(b.title),
+      title: (a, b) => a.title.localeCompare(b.title),
+      year: (a, b) => (b.year ?? 0) - (a.year ?? 0),
+      tracks: (a, b) => b.trackCount - a.trackCount,
+      size: (a, b) => b.sizeBytes - a.sizeBytes,
+    };
+    return [...r].sort(cmp[sort]);
+  }, [albums, q, decade, sort]);
+
+  useEffect(() => setLimit(ALBUM_PAGE), [q, decade, sort]);
+
+  if (error) return <ErrorState message={error} />;
+  const shown = filtered.slice(0, limit);
+
+  return (
+    <>
+      <LibraryTabs active="albums" navigate={navigate} />
+      <h1 className="page-title">Albums</h1>
+      <p className="page-lede">{albums ? `${fmtInt(albums.length)} reconstructed albums` : 'Your collection'}</p>
+      <div className="albums-controls">
+        <input className="search" style={{ margin: 0, flex: 1 }} placeholder="Filter albums…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select className="sb-input" style={{ width: 'auto', flex: 'none' }} value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
+          <option value="artist">Sort: Artist</option>
+          <option value="title">Sort: Title</option>
+          <option value="year">Sort: Newest</option>
+          <option value="tracks">Sort: Most tracks</option>
+          <option value="size">Sort: Largest</option>
+        </select>
+      </div>
+      {decades.length > 0 && (
+        <div className="decade-chips">
+          <button className={'decade' + (decade == null ? ' on' : '')} onClick={() => setDecade(null)}>
+            All
+          </button>
+          {decades.map((d) => (
+            <button key={d} className={'decade' + (decade === d ? ' on' : '')} onClick={() => setDecade(d)}>
+              {d}s
+            </button>
+          ))}
+        </div>
+      )}
+      {!albums ? (
+        <Loading label="Loading albums…" />
+      ) : filtered.length === 0 ? (
+        <div className="empty">No albums match.</div>
+      ) : (
+        <>
+          <div className="list-count">
+            Showing {fmtInt(shown.length)} of {fmtInt(filtered.length)} albums
+          </div>
+          <div className="album-grid">
+            {shown.map((a) => (
+              <AlbumCard key={a.id} album={a} artistName={a.artistName} navigate={navigate} />
+            ))}
+          </div>
+          {filtered.length > shown.length && (
+            <button className="load-more" onClick={() => setLimit((n) => n + ALBUM_PAGE)}>
+              Show {fmtInt(Math.min(ALBUM_PAGE, filtered.length - shown.length))} more
+            </button>
+          )}
+        </>
+      )}
+    </>
+  );
 }
 
 /* ---------------- Artists list ---------------- */
@@ -76,6 +194,7 @@ function ArtistsList({ navigate }: { navigate: (v: LibraryView) => void }) {
 
   return (
     <>
+      <LibraryTabs active="artists" navigate={navigate} />
       <h1 className="page-title">Library</h1>
       <p className="page-lede">
         {artists ? `${fmtInt(artists.length)} artists` : 'Your collection'} — pick an artist to see their
