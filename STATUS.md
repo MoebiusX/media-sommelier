@@ -5,8 +5,25 @@
 > named GATE command was actually run green — never on inspection. Update this file at every checkpoint
 > so a fresh session resumes without re-deriving the plan.
 >
-> **Last full-tree verification: 2026-06-22** — `npm test` → 101 passed (15 files); `npm run typecheck`
+> **Last full-tree verification: 2026-06-23** — `npm test` → 117 passed (17 files); `npm run typecheck`
 > clean; `npm run reconstruct:sample` end-to-end OK; `npm run build:web` clean.
+>
+> **Latest feature (2026-06-23, `develop`): Auto DJ — endless mood/style radio.** New pure engine area
+> `src/engine/dj/**`: `classifyGenre` (genre tag → {style, mood} families, offline) + `autoDj` (greedy
+> flow sequencer — affinity to target mood/style/era + flow bonus + artist diversity + injectable RNG,
+> evidence trace per pick). Server `GET /api/dj/moods` (vibes present in the playable library + counts)
+> and `POST /api/dj/queue` (seed/mood/style/artist/exclude → ordered PlayerTracks). Web: player
+> `startAutoDj`/`stopAutoDj` + endless auto-extend (tops the queue up on-vibe near the end), an `AutoDj`
+> picker (sidebar launcher always visible + PlayerBar button) and a live now-playing pill. Gates:
+> `npm test -- autodj` (9) + `typecheck` + `build:web` green; verified live (Chill station coherent;
+> queue auto-grew 40→60; zero console errors). Honest scope: mood is genre-derived (no audio analysis).
+>
+> **Feature (2026-06-22, `develop`): player lyrics + full-screen view.** Engine `readLyrics`
+> (`src/engine/inventory/lyrics.ts`, offline: `.lrc`/`.txt` sidecar → embedded SYLT/USLT, read-only) +
+> `GET /api/lyrics` (server2, graceful lrclib.net online fallback, in-memory cached) + a full-screen
+> React overlay (`web/src/Lyrics.tsx`) with synced karaoke auto-scroll, font scaling, and a true
+> Fullscreen toggle so it reads from across the room. Gates: `npm test -- lyrics` (7) + `typecheck` +
+> `build:web` green; verified live against the indexed library (synced lyrics, autoscroll centering).
 >
 > **Two numbering axes, don't conflate them:** `P0–P8` below are the doctrine's *architectural layer*
 > phases (the `src/engine` layout). `V0–V3` in [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)
@@ -40,7 +57,7 @@ Tree or `dir /s` listing → `MediaFileRecord[]`, read-only.
 - Scope: `src/engine/inventory/**`, `test/wait.test.ts`
 - Interface: imports `./types.js`, `./text.js` → exports `parseDirListing`, `walk/walkToArray/waitForPath`, `readTags/TagInfo`, `readCover/Cover`
 - Gate: `npm test -- wait` (2) → **green 2026-06-22**
-  - [x] P1Task1 — `dirListing.ts` · [x] P1Task2 — `walk.ts` (`wait.test.ts`) · [x] P1Task3 — `tags.ts` · [x] P1Task4 — `cover.ts`
+  - [x] P1Task1 — `dirListing.ts` · [x] P1Task2 — `walk.ts` (`wait.test.ts`) · [x] P1Task3 — `tags.ts` · [x] P1Task4 — `cover.ts` · [x] P1Task5 — `lyrics.ts` (`lyrics.test.ts`, 7)
 
 ### P2 — Reconstruct (the heart) · `done(gate passed)`
 `MediaFileRecord[]` → `ReconstructionReport`; confidence ≤ 0.75; evidence trace per candidate.

@@ -10,6 +10,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { api } from './api';
 
 export interface PlayerTrack {
   id: number;
@@ -19,6 +20,23 @@ export interface PlayerTrack {
   durationMs: number | null;
   albumId?: string;
   albumTitle?: string;
+  /** Auto DJ "why this track" trace, when the queue came from a station. */
+  reason?: string[];
+}
+
+/** Active Auto DJ station: the queue endlessly extends with on-vibe tracks until turned off. */
+export interface AutoDjState {
+  label: string;
+  mood?: string;
+  style?: string;
+}
+
+/** Start an Auto DJ station by mood, style, a seed track, or an artist ("surprise me" = no args). */
+export interface AutoDjSeed {
+  mood?: string;
+  style?: string;
+  seedPath?: string;
+  artist?: string;
 }
 
 interface PlayerApi {
@@ -40,6 +58,12 @@ interface PlayerApi {
   repeat: boolean;
   toggleRepeat: () => void;
   shuffle: () => void;
+  /** Active Auto DJ station, or null. */
+  autoDj: AutoDjState | null;
+  /** Start an endless mood/style station; replaces the queue and begins playing. */
+  startAutoDj: (seed: AutoDjSeed) => Promise<void>;
+  /** Turn the station off (keeps the current queue playing, just stops auto-extending). */
+  stopAutoDj: () => void;
 }
 
 const Ctx = createContext<PlayerApi | null>(null);
@@ -65,6 +89,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [volume, setVol] = useState(1);
   const [repeat, setRepeat] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoDj, setAutoDj] = useState<AutoDjState | null>(null);
+  const autoDjRef = useRef<AutoDjState | null>(null);
+  autoDjRef.current = autoDj;
+  const extendingRef = useRef(false); // guards against overlapping auto-extend fetches
 
   // mirrors so event handlers (onEnded, keydown) see the latest without stale closures
   const queueLenRef = useRef(0);
@@ -80,10 +108,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const playQueue = useCallback((tracks: PlayerTrack[], startIndex: number) => {
     if (tracks.length === 0) return;
+    setAutoDj(null); // manually choosing what to play exits Auto DJ
     setQueue(tracks);
     setIndex(Math.max(0, Math.min(startIndex, tracks.length - 1)));
     setError(null);
   }, []);
+
+  const startAutoDj = useCallback(async (seed: AutoDjSeed) => {
+    try {
+      const r = await api.djQueue({ ...seed, limit: 40 });
+      if (r.tracks.length === 0) {
+        setError('No tracks match that vibe.');
+        return;
+      }
+      setAutoDj({ label: r.target.label, ...(r.target.mood ? { mood: r.target.mood } : {}), ...(r.target.style ? { style: r.target.style } : {}) });
+      setQueue(r.tracks);
+      setIndex(0);
+      setError(null);
+    } catch {
+      setError('Auto DJ is unavailable.');
+    }
+  }, []);
+
+  const stopAutoDj = useCallback(() => setAutoDj(null), []);
 
   const next = useCallback(() => setIndex((i) => Math.min(i + 1, queueLenRef.current - 1)), []);
   const prev = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), []);
@@ -174,6 +221,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [index]);
 
+  // Endless station: when Auto DJ is on and we're within 3 tracks of the end, fetch more on-vibe tracks
+  // (seeded by the last queued track, excluding everything already queued) and append them.
+  useEffect(() => {
+    const dj = autoDj;
+    if (!dj || index < 0 || index < queue.length - 3 || extendingRef.current) return;
+    const last = queue[queue.length - 1];
+    if (!last) return;
+    extendingRef.current = true;
+    const exclude = queue.map((t) => t.path);
+    api
+      .djQueue({ ...(dj.mood ? { mood: dj.mood } : {}), ...(dj.style ? { style: dj.style } : {}), seedPath: last.path, exclude, limit: 20 })
+      .then((r) => {
+        if (!autoDjRef.current) return; // turned off while fetching
+        const seen = new Set(exclude);
+        const more = r.tracks.filter((t) => !seen.has(t.path));
+        if (more.length) setQueue((q) => [...q, ...more]);
+      })
+      .catch(() => {})
+      .finally(() => {
+        extendingRef.current = false;
+      });
+  }, [index, queue, autoDj]);
+
   const value = useMemo<PlayerApi>(
     () => ({
       queue,
@@ -193,8 +263,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       repeat,
       toggleRepeat,
       shuffle,
+      autoDj,
+      startAutoDj,
+      stopAutoDj,
     }),
-    [queue, index, current, isPlaying, currentTime, duration, volume, error, playQueue, toggle, next, prev, seek, setVolume, repeat, toggleRepeat, shuffle],
+    [queue, index, current, isPlaying, currentTime, duration, volume, error, playQueue, toggle, next, prev, seek, setVolume, repeat, toggleRepeat, shuffle, autoDj, startAutoDj, stopAutoDj],
   );
 
   return (

@@ -297,6 +297,42 @@ export interface RefreshBatchJob {
   error?: string;
 }
 
+export interface LyricLine {
+  time: number;
+  text: string;
+}
+export interface LyricsResult {
+  ok: boolean;
+  source: 'sidecar' | 'embedded' | 'lrclib' | null;
+  synced: LyricLine[] | null;
+  plain: string | null;
+}
+
+export interface DjVibe {
+  key: string;
+  label: string;
+  tracks: number;
+}
+export interface DjQueueTrack {
+  id: number;
+  title: string;
+  artistName: string;
+  path: string;
+  durationMs: number | null;
+  albumId?: string;
+  albumTitle?: string;
+  reason: string[];
+}
+export interface DjQueueResult {
+  target: { label: string; mood?: string; style?: string };
+  tracks: DjQueueTrack[];
+}
+export interface DjMoodsResult {
+  moods: DjVibe[];
+  styles: DjVibe[];
+  classifiedTracks: number;
+}
+
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
   if (!r.ok) {
@@ -353,6 +389,12 @@ export const api = {
   artist: (name: string) => get<ArtistDetail>(`/api/artist/${encodeURIComponent(name)}`),
   album: (id: string) => get<AlbumDetail>(`/api/album/${encodeURIComponent(id)}`),
   coverUrl: (albumId: string) => `/api/cover?albumId=${encodeURIComponent(albumId)}`,
+  lyrics: (path: string) => get<LyricsResult>(`/api/lyrics?path=${encodeURIComponent(path)}`),
+
+  // ---- auto dj (mood/style radio) ----
+  djMoods: () => get<DjMoodsResult>('/api/dj/moods'),
+  djQueue: (b: { seedPath?: string; mood?: string; style?: string; artist?: string; exclude?: string[]; limit?: number }) =>
+    post<DjQueueResult>('/api/dj/queue', b),
 
   // ---- controls ----
   presets: () => get<Record<string, Preset>>('/api/presets'),

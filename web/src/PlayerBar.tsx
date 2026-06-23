@@ -3,6 +3,8 @@ import { useState, type CSSProperties } from 'react';
 import { usePlayer } from './player';
 import { fmtDuration } from './api';
 import { Cover } from './ui';
+import Lyrics from './Lyrics';
+import { AutoDjPicker } from './AutoDj';
 
 function clock(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) sec = 0;
@@ -58,6 +60,21 @@ const QueueIco = () => (
     <path d="M17 14v6l4-2.2z" fill="currentColor" stroke="none" />
   </svg>
 );
+const LyricsIco = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M4 7h13M4 12h10M4 17h7" />
+    <circle cx="18.5" cy="15.5" r="2.5" />
+    <path d="M21 15.5V8l-3 1" />
+  </svg>
+);
+const RadioIco = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M4.5 9.5 18 4" />
+    <rect x="3" y="9" width="18" height="11" rx="2" />
+    <circle cx="8" cy="14.5" r="2.5" />
+    <path d="M16 13.5v2" />
+  </svg>
+);
 
 export default function PlayerBar({
   onOpenAlbum,
@@ -66,6 +83,8 @@ export default function PlayerBar({
 }) {
   const p = usePlayer();
   const [showQueue, setShowQueue] = useState(false);
+  const [showLyrics, setShowLyrics] = useState(false);
+  const [showDj, setShowDj] = useState(false);
   const cur = p.current;
   if (!cur) return null;
 
@@ -75,6 +94,7 @@ export default function PlayerBar({
   };
 
   return (
+    <>
     <div className="player">
       <div
         className={'player-np' + (canOpenAlbum ? ' clickable' : '')}
@@ -92,7 +112,19 @@ export default function PlayerBar({
             {cur.title}
           </div>
           <div className="player-artist" title={cur.artistName}>
-            {p.error ? <span className="err-text">{p.error}</span> : cur.artistName}
+            {p.error ? (
+              <span className="err-text">{p.error}</span>
+            ) : p.autoDj ? (
+              <>
+                <span className="dj-pill" title={`Auto DJ · ${p.autoDj.label}`}>
+                  <span className="dj-pill-dot" />
+                  {p.autoDj.label}
+                </span>
+                {cur.artistName}
+              </>
+            ) : (
+              cur.artistName
+            )}
           </div>
         </div>
       </div>
@@ -150,6 +182,22 @@ export default function PlayerBar({
 
       <div className="player-right">
         <button
+          className={'pbtn qbtn' + (p.autoDj ? ' on' : '')}
+          onClick={() => setShowDj(true)}
+          aria-label="Auto DJ"
+          title="Auto DJ — play by mood/style"
+        >
+          <RadioIco />
+        </button>
+        <button
+          className={'pbtn qbtn' + (showLyrics ? ' on' : '')}
+          onClick={() => setShowLyrics((v) => !v)}
+          aria-label="Lyrics"
+          title="Lyrics (full screen)"
+        >
+          <LyricsIco />
+        </button>
+        <button
           className={'pbtn qbtn' + (showQueue ? ' on' : '')}
           onClick={() => setShowQueue((v) => !v)}
           aria-label="Queue"
@@ -175,7 +223,7 @@ export default function PlayerBar({
         <div className="queue-pop">
           <div className="queue-head">
             <span>
-              Queue <span className="muted">· {p.queue.length} tracks</span>
+              {p.autoDj ? 'Auto DJ' : 'Queue'} <span className="muted">· {p.queue.length} tracks{p.autoDj ? ' · live' : ''}</span>
             </span>
             <button className="queue-x" onClick={() => setShowQueue(false)} aria-label="Close">
               ✕
@@ -217,5 +265,8 @@ export default function PlayerBar({
         </div>
       )}
     </div>
+    {showLyrics && <Lyrics onClose={() => setShowLyrics(false)} />}
+    <AutoDjPicker open={showDj} onClose={() => setShowDj(false)} />
+    </>
   );
 }

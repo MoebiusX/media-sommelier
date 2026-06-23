@@ -10,6 +10,7 @@ import { Icon } from './ui';
 import { PlayerProvider } from './player';
 import PlayerBar from './PlayerBar';
 import CommandPalette from './CommandPalette';
+import { AutoDjLauncher } from './AutoDj';
 
 type Tab = 'overview' | 'library' | 'organize' | 'sync' | 'playlists';
 
@@ -137,6 +138,8 @@ export default function App() {
           <span>Search…</span>
           <kbd>⌘K</kbd>
         </button>
+
+        <AutoDjLauncher />
 
         {navItem('organize', 'organize', 'Organize')}
         {navItem('library', 'library', 'Library')}
