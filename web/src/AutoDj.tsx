@@ -105,19 +105,3 @@ export function AutoDjPicker({ open, onClose }: { open: boolean; onClose: () => 
     </div>
   );
 }
-
-/** Sidebar entry point — always visible, even when nothing is playing. */
-export function AutoDjLauncher() {
-  const p = usePlayer();
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button className={'sidebar-dj' + (p.autoDj ? ' on' : '')} onClick={() => setOpen(true)}>
-        <Radio />
-        <span className="sidebar-dj-text">{p.autoDj ? `Auto DJ · ${p.autoDj.label}` : 'Auto DJ'}</span>
-        {p.autoDj && <span className="sidebar-dj-live">LIVE</span>}
-      </button>
-      <AutoDjPicker open={open} onClose={() => setOpen(false)} />
-    </>
-  );
-}

@@ -8,7 +8,18 @@
 > **Last full-tree verification: 2026-06-23** — `npm test` → 119 passed (18 files); `npm run typecheck`
 > clean; `npm run build:web` clean.
 >
-> **Latest feature (2026-06-23, `feat/player-audio-tier2` → `develop`): player sound quality — Tier 2.**
+> **Latest feature (2026-06-23, `feat/ui-navigation-polish` → `develop`): navigation reorg + UI polish.**
+> Sidebar extracted to `web/src/Sidebar.tsx`: grouped nav (Listen: Library/Playlists/Auto DJ · Manage:
+> Organize/Sync · Overview), **lands on Library** by default (was Organize); collapsible to an icon rail
+> (persisted) + **drag-to-resize** width (persisted, 200–360px; the `.app` grid column follows via
+> `auto 1fr`); a **now-playing card** (cover + title/artist + EQ). Bolder content refresh (CSS-only):
+> artist rows (hover accent bar + chevron slide), album cards (hover lift + cover shadow), track table
+> (elevated surface + active-row accent bar), buttons (lift + primary glow), bigger page titles. Auto DJ
+> moved into the Listen group (`AutoDjLauncher` removed). Gates: `typecheck` + `test` (119) + `build:web`
+> green; reviewer-audited (SAFE TO MERGE); verified live (collapse 248↔64, resize→312 persisted, routing,
+> now-playing card, refreshed Library/album/track views; zero console errors).
+>
+> **Feature (2026-06-23, `feat/player-audio-tier2` → `develop`): player sound quality — Tier 2.**
 > Built on the Tier 1 graph. **(1) EQ presets** — 3 biquad bands (lowshelf 120Hz / peak 1.5kHz / highshelf
 > 6kHz), Flat/Bass/Vocal/Treble. **(2) Night/room mode** — a `DynamicsCompressorNode` (+makeup gain) that
 > lifts quiet passages so vocals carry across a room; transparent bypass (ratio 1) when off. **(3) Output
