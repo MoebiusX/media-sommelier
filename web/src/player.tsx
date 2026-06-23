@@ -768,6 +768,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     loadInto(ab, nxt, { play: false });
   }, [index, queue, elFor, loadInto]);
 
+  // Defensive teardown: clear a pending crossfade finalize timer on unmount. (The provider is a root
+  // singleton in practice, so this rarely fires; we intentionally do NOT close the AudioContext — that
+  // would break React StrictMode's mount/unmount/mount cycle, which reuses the already-built graph.)
+  useEffect(() => () => {
+    if (crossfadeTimerRef.current) clearTimeout(crossfadeTimerRef.current);
+  }, []);
+
   const value = useMemo<PlayerApi>(
     () => ({
       queue,
