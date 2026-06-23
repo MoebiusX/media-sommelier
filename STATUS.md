@@ -8,7 +8,15 @@
 > **Last full-tree verification: 2026-06-23** — `npm test` → 119 passed (18 files); `npm run typecheck`
 > clean; `npm run build:web` clean.
 >
-> **Latest feature (2026-06-23, `feat/ui-navigation-polish` → `develop`): navigation reorg + UI polish.**
+> **Latest feature (2026-06-23, `feat/light-theme` → `develop`): light theme + dark/light toggle.**
+> Theme-sensitive hardcoded colors tokenized (text-on-accent, scrollbar, cover fallback, player bar,
+> lyrics overlay) into CSS vars; `:root[data-theme='light']` overrides the palette (deepened accents for
+> white) with dark as default. `web/src/theme.ts` resolves stored choice → OS `prefers-color-scheme`; a
+> sun/moon toggle in the sidebar foot persists it; an inline script in `index.html` applies it pre-paint
+> (no flash). Gates: `typecheck` + `test` (119) + `build:web` green; verified live (toggle + persist +
+> reload, both themes across Library/album/player/Overview; zero console errors).
+>
+> **Feature (2026-06-23, `feat/ui-navigation-polish` → `develop`): navigation reorg + UI polish.**
 > Sidebar extracted to `web/src/Sidebar.tsx`: grouped nav (Listen: Library/Playlists/Auto DJ · Manage:
 > Organize/Sync · Overview), **lands on Library** by default (was Organize); collapsible to an icon rail
 > (persisted) + **drag-to-resize** width (persisted, 200–360px; the `.app` grid column follows via
