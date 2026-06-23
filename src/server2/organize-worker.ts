@@ -55,6 +55,11 @@ function candidatesFor(mode: string, source: string): { candidates: AlbumCandida
       } catch {
         /* no root recorded */
       }
+      // The dest-outside-source guard needs the indexed root. Rather than silently drop it (which would
+      // let a dest land inside the library and get re-ingested on rescan), refuse to run without it.
+      if (!root) {
+        throw new Error('No indexed library root recorded — scan a library before organizing by metadata.');
+      }
       return { candidates: metadataCandidates(rows), sourceRoot: root };
     } finally {
       db.close();
