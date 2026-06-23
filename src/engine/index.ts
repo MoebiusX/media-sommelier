@@ -20,6 +20,8 @@ export { readCover } from './inventory/cover.js';
 export type { Cover } from './inventory/cover.js';
 export { readLyrics, parseLrc } from './inventory/lyrics.js';
 export type { Lyrics, LyricLine } from './inventory/lyrics.js';
+export { readReplayGain } from './inventory/loudness.js';
+export type { ReplayGain } from './inventory/loudness.js';
 export { scanLibrary } from './library/scan.js';
 export type { Track, ScanLibraryOptions } from './library/scan.js';
 export { scanLibraryCached } from './library/catalog.js';

@@ -5,10 +5,24 @@
 > named GATE command was actually run green — never on inspection. Update this file at every checkpoint
 > so a fresh session resumes without re-deriving the plan.
 >
-> **Last full-tree verification: 2026-06-23** — `npm test` → 117 passed (17 files); `npm run typecheck`
-> clean; `npm run reconstruct:sample` end-to-end OK; `npm run build:web` clean.
+> **Last full-tree verification: 2026-06-23** — `npm test` → 119 passed (18 files); `npm run typecheck`
+> clean; `npm run build:web` clean.
 >
-> **Latest feature (2026-06-23, `develop`): Auto DJ — endless mood/style radio.** New pure engine area
+> **Latest feature (2026-06-23, `feat/player-sound-quality` → `develop`): player sound quality — quick
+> wins.** A single Web Audio graph now backs playback: `MediaElementSource → normGain (ReplayGain) →
+> userGain (perceptual volume) → destination` (built lazily on the first user gesture; element output
+> moved off `.volume` onto the graph). **(1) Perceptual volume** — the linear slider is mapped through a
+> dB taper (`sliderToGain`, −48 dB floor) and persisted to localStorage. **(2) ReplayGain leveling** —
+> pure engine `readReplayGain` (`src/engine/inventory/loudness.ts`, reads embedded RG/R128 tags, offline,
+> read-only) + cached `GET /api/loudness` + per-track gain applied via `normGain`, album-vs-track aware,
+> clamped to peak headroom so positive boosts never clip (a GainNode can exceed unity — `element.volume`
+> can't). An "RG" pill shows the applied dB. **(3) Next-track preload** — a hidden warmer `<audio>`
+> prefetches the next track + `Cache-Control` on `/api/audio` so advancing reuses cached bytes. Gates:
+> `npm test -- loudness` (2) + `typecheck` + `build:web` green; verified live (graph active — slider drag
+> kept `element.volume===1`; RG re-normalized per track +0.8→−0.3 dB; warmer prefetched the next track;
+> zero console errors). Deferred to Tier 2: EQ, night/room compressor, equal-power crossfade, `setSinkId`.
+>
+> **Feature (2026-06-23, `develop`): Auto DJ — endless mood/style radio.** New pure engine area
 > `src/engine/dj/**`: `classifyGenre` (genre tag → {style, mood} families, offline) + `autoDj` (greedy
 > flow sequencer — affinity to target mood/style/era + flow bonus + artist diversity + injectable RNG,
 > evidence trace per pick). Server `GET /api/dj/moods` (vibes present in the playable library + counts)

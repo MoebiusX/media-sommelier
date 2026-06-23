@@ -308,6 +308,17 @@ export interface LyricsResult {
   plain: string | null;
 }
 
+export interface LoudnessResult {
+  ok: boolean;
+  /** Track gain in dB (negative = attenuate a loud master), or null when the file has no RG tags. */
+  trackGainDb: number | null;
+  albumGainDb: number | null;
+  /** Sample peak as a linear ratio (~0..1), used to clamp positive gain so it never clips. */
+  trackPeak: number | null;
+  albumPeak: number | null;
+  source: 'tag' | null;
+}
+
 export interface DjVibe {
   key: string;
   label: string;
@@ -390,6 +401,7 @@ export const api = {
   album: (id: string) => get<AlbumDetail>(`/api/album/${encodeURIComponent(id)}`),
   coverUrl: (albumId: string) => `/api/cover?albumId=${encodeURIComponent(albumId)}`,
   lyrics: (path: string) => get<LyricsResult>(`/api/lyrics?path=${encodeURIComponent(path)}`),
+  loudness: (path: string) => get<LoudnessResult>(`/api/loudness?path=${encodeURIComponent(path)}`),
 
   // ---- auto dj (mood/style radio) ----
   djMoods: () => get<DjMoodsResult>('/api/dj/moods'),

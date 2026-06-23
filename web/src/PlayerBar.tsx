@@ -205,6 +205,14 @@ export default function PlayerBar({
         >
           <QueueIco />
         </button>
+        {p.normalizationDb != null && (
+          <span
+            className="rg-pill"
+            title={`ReplayGain — tracks level-matched (${p.normalizationDb >= 0 ? '+' : ''}${p.normalizationDb.toFixed(1)} dB on this track)`}
+          >
+            RG
+          </span>
+        )}
         <Vol />
         <input
           className="range vol"
