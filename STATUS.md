@@ -5,10 +5,28 @@
 > named GATE command was actually run green — never on inspection. Update this file at every checkpoint
 > so a fresh session resumes without re-deriving the plan.
 >
-> **Last full-tree verification: 2026-06-23** — `npm test` → 123 passed (19 files); `npm run typecheck`
+> **Last full-tree verification: 2026-06-23** — `npm test` → 125 passed (19 files); `npm run typecheck`
 > clean; `npm run build:web` clean.
 >
-> **Latest feature (2026-06-23, `feat/metadata-reconstruction` → `develop`): metadata album reconstruction
+> **MVP COMPLETE (2026-06-23).** Both reconstruction axes now plan AND execute: folder-based (Organize
+> naming scheme) and tag-based (metadata). The app does the full arc: ingest → browse/play (lyrics, Auto
+> DJ, EQ/night/crossfade, ReplayGain) → reconstruct (folders OR metadata) → organize into a clean COPY
+> tree → drive-sync. Light/dark themes. Originals never mutated.
+>
+> **Latest feature (2026-06-23, `feat/organize-by-metadata` → `develop`): organize BY metadata (plan +
+> execute).** `metadataCandidates()` (`src/engine/reconstruct/metadataAlbums.ts`, shares `bucketize` with
+> `groupByMetadata`) turns the (album-artist, album) tag grouping into `AlbumCandidate[]` with collision-
+> free disc positions (keep real trackNo when free, else next slot); conf ≤0.75 + evidence (I4). The
+> organize child-process worker gains a `metadata` mode (builds candidates from the indexed catalog, uses
+> the indexed root as the dest-outside-source guard — and now hard-fails if that root is missing); reuses
+> `planOrganize` + `executePlan` (copy-only, hash-verified, collisions failed, idempotent). `POST
+> /api/organize/metadata/plan` (dry run) + `/api/organize/run` `mode:'metadata'`; web "Reorganize by
+> metadata" panel (`MetadataSim`). Reviewer-PANEL audited (4 lenses → SAFE TO MERGE). Verified live: plan
+> over the real catalog = 9,432 files, 0 collisions/skipped; bounded execute copied real files into the
+> `Artist/Album/NN - Title` tag tree (atomic temp→rename), source untouched. Gates: `typecheck` + `test`
+> (125, +2) + `build:web` green.
+>
+> **Feature (2026-06-23, `feat/metadata-reconstruction` → `develop`): metadata album reconstruction
 > + simulate.** Folder `reconstruct()` groups by where files live; this groups by what tags SAY. New pure
 > engine `groupByMetadata` (`src/engine/reconstruct/metadataAlbums.ts`) buckets tag-level tracks by
 > (album-artist, album) — `normalize` + `stripDiscTokens` so disc/edition variants merge — and flags
