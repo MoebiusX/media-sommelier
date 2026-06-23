@@ -66,6 +66,20 @@ interface PlayerApi {
   startAutoDj: (seed: AutoDjSeed) => Promise<void>;
   /** Turn the station off (keeps the current queue playing, just stops auto-extending). */
   stopAutoDj: () => void;
+  /** Graphic-EQ preset, applied via three biquad bands in the Web Audio graph. */
+  eqPreset: EqPreset;
+  setEqPreset: (p: EqPreset) => void;
+  /** Night/room mode — gentle compression that lifts quiet passages for across-the-room listening. */
+  nightMode: boolean;
+  setNightMode: (on: boolean) => void;
+  /** Output devices + the selected sink (DAC/headphones/speakers); empty when unsupported. */
+  outputs: AudioOutput[];
+  outputId: string;
+  setOutputId: (id: string) => Promise<void>;
+  /** (Re)enumerate output devices — call when the picker opens. */
+  refreshOutputs: () => Promise<void>;
+  /** Whether output switching is supported here (Chromium AudioContext.setSinkId). */
+  canPickOutput: boolean;
 }
 
 const Ctx = createContext<PlayerApi | null>(null);
@@ -85,6 +99,54 @@ export function sliderToGain(s: number): number {
   if (s <= 0) return 0;
   if (s >= 1) return 1;
   return 10 ** ((VOLUME_MIN_DB * (1 - s)) / 20);
+}
+
+/** A 3-band EQ preset: low shelf (~120 Hz), mid peak (~1.5 kHz), high shelf (~6 kHz), gains in dB. */
+export type EqPreset = 'flat' | 'bass' | 'vocal' | 'treble';
+export const EQ_PRESETS: Record<EqPreset, { label: string; low: number; mid: number; high: number }> = {
+  flat: { label: 'Flat', low: 0, mid: 0, high: 0 },
+  bass: { label: 'Bass', low: 6, mid: 0, high: 2 },
+  vocal: { label: 'Vocal', low: -1, mid: 4, high: 2 },
+  treble: { label: 'Treble', low: 0, mid: 1, high: 5 },
+};
+export function isEqPreset(s: string | null): s is EqPreset {
+  return s === 'flat' || s === 'bass' || s === 'vocal' || s === 'treble';
+}
+
+/** An available audio output (DAC / headphones / speakers) for the output-device picker. */
+export interface AudioOutput {
+  id: string;
+  label: string;
+}
+
+/** Push an EQ preset onto the three biquad bands. */
+function applyEq(low: BiquadFilterNode, mid: BiquadFilterNode, high: BiquadFilterNode, preset: EqPreset): void {
+  const p = EQ_PRESETS[preset];
+  low.gain.value = p.low;
+  mid.gain.value = p.mid;
+  high.gain.value = p.high;
+}
+
+/**
+ * Night/room mode: gentle compression that lifts quiet passages so vocals stay intelligible across a room,
+ * plus makeup gain to restore level. OFF = a transparent bypass (ratio 1 does no gain reduction).
+ */
+function applyNight(comp: DynamicsCompressorNode, makeup: GainNode, on: boolean): void {
+  if (on) {
+    comp.threshold.value = -32;
+    comp.knee.value = 24;
+    comp.ratio.value = 5;
+    comp.attack.value = 0.01;
+    comp.release.value = 0.3;
+    makeup.gain.value = 10 ** (5 / 20); // ~+5 dB makeup
+  } else {
+    comp.threshold.value = 0;
+    comp.knee.value = 0;
+    comp.ratio.value = 1; // ratio 1 = no compression → transparent
+    comp.attack.value = 0.003;
+    comp.release.value = 0.25;
+    makeup.gain.value = 1;
+  }
 }
 
 export function usePlayer(): PlayerApi {
@@ -109,6 +171,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [repeat, setRepeat] = useState(false);
   const [normalizationDb, setNormalizationDb] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [eqPreset, setEqPresetState] = useState<EqPreset>(() => {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('somm.eq') : null;
+    return isEqPreset(raw) ? raw : 'flat';
+  });
+  const [nightMode, setNightModeState] = useState<boolean>(
+    () => typeof localStorage !== 'undefined' && localStorage.getItem('somm.night') === '1',
+  );
+  const [outputs, setOutputs] = useState<AudioOutput[]>([]);
+  const [outputId, setOutputIdState] = useState<string>(
+    () => (typeof localStorage !== 'undefined' ? localStorage.getItem('somm.sink') : null) ?? 'default',
+  );
+  const canPickOutput = useMemo(
+    () =>
+      typeof window !== 'undefined' &&
+      typeof window.AudioContext !== 'undefined' &&
+      'setSinkId' in (window.AudioContext.prototype as object),
+    [],
+  );
   const [autoDj, setAutoDj] = useState<AutoDjState | null>(null);
   const autoDjRef = useRef<AutoDjState | null>(null);
   autoDjRef.current = autoDj;
@@ -123,9 +203,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const srcNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const normGainRef = useRef<GainNode | null>(null);
   const userGainRef = useRef<GainNode | null>(null);
+  const eqLowRef = useRef<BiquadFilterNode | null>(null);
+  const eqMidRef = useRef<BiquadFilterNode | null>(null);
+  const eqHighRef = useRef<BiquadFilterNode | null>(null);
+  const compRef = useRef<DynamicsCompressorNode | null>(null);
+  const makeupRef = useRef<GainNode | null>(null);
   const warmRef = useRef<HTMLAudioElement | null>(null);
   const volumeRef = useRef(volume);
   volumeRef.current = volume;
+  const eqPresetRef = useRef(eqPreset);
+  eqPresetRef.current = eqPreset;
+  const nightModeRef = useRef(nightMode);
+  nightModeRef.current = nightMode;
+  const outputIdRef = useRef(outputId);
+  outputIdRef.current = outputId;
   const currentPathRef = useRef<string | null>(null);
 
   // mirrors so event handlers (onEnded, keydown) see the latest without stale closures
@@ -158,19 +249,65 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const ctx = new Ctor();
       const srcNode = ctx.createMediaElementSource(audioRef.current);
       const normGain = ctx.createGain();
+      const eqLow = ctx.createBiquadFilter();
+      eqLow.type = 'lowshelf';
+      eqLow.frequency.value = 120;
+      const eqMid = ctx.createBiquadFilter();
+      eqMid.type = 'peaking';
+      eqMid.frequency.value = 1500;
+      eqMid.Q.value = 1;
+      const eqHigh = ctx.createBiquadFilter();
+      eqHigh.type = 'highshelf';
+      eqHigh.frequency.value = 6000;
+      const comp = ctx.createDynamicsCompressor();
+      const makeup = ctx.createGain();
       const userGain = ctx.createGain();
-      srcNode.connect(normGain).connect(userGain).connect(ctx.destination);
+      // RG normalize → tone (EQ) → dynamics (night mode) → makeup → master volume → out. Volume is LAST
+      // so night-mode compression reacts to the full signal regardless of listening level.
+      srcNode
+        .connect(normGain)
+        .connect(eqLow)
+        .connect(eqMid)
+        .connect(eqHigh)
+        .connect(comp)
+        .connect(makeup)
+        .connect(userGain)
+        .connect(ctx.destination);
       normGain.gain.value = 1; // 0 dB until a track's ReplayGain is known
       userGain.gain.value = sliderToGain(volumeRef.current);
+      applyEq(eqLow, eqMid, eqHigh, eqPresetRef.current);
+      applyNight(comp, makeup, nightModeRef.current);
       audioRef.current.volume = 1; // all volume now flows through userGain
       audioCtxRef.current = ctx;
       srcNodeRef.current = srcNode;
       normGainRef.current = normGain;
+      eqLowRef.current = eqLow;
+      eqMidRef.current = eqMid;
+      eqHighRef.current = eqHigh;
+      compRef.current = comp;
+      makeupRef.current = makeup;
       userGainRef.current = userGain;
+      // Apply a previously-chosen output device to the graph (AudioContext.setSinkId routes the whole graph).
+      const sink = outputIdRef.current;
+      if (canPickOutput && sink && sink !== 'default') {
+        void (ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> }).setSinkId?.(sink).catch(() => {});
+      }
+      if ((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV) {
+        (window as unknown as { __sommAudio?: unknown }).__sommAudio = {
+          ctx,
+          normGain,
+          userGain,
+          eqLow,
+          eqMid,
+          eqHigh,
+          comp,
+          makeup,
+        };
+      }
     } catch {
       /* graph build failed — leave element.volume in charge */
     }
-  }, []);
+  }, [canPickOutput]);
 
   /** Build + resume the graph. Must run from a user gesture (autoplay policy suspends the context). */
   const kick = useCallback(() => {
@@ -234,6 +371,61 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [kick]);
 
   const stopAutoDj = useCallback(() => setAutoDj(null), []);
+
+  const setEqPreset = useCallback((p: EqPreset) => {
+    setEqPresetState(p);
+    try {
+      localStorage.setItem('somm.eq', p);
+    } catch {
+      /* ignore */
+    }
+    if (eqLowRef.current && eqMidRef.current && eqHighRef.current) {
+      applyEq(eqLowRef.current, eqMidRef.current, eqHighRef.current, p);
+    }
+  }, []);
+
+  const setNightMode = useCallback((on: boolean) => {
+    setNightModeState(on);
+    try {
+      localStorage.setItem('somm.night', on ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+    if (compRef.current && makeupRef.current) applyNight(compRef.current, makeupRef.current, on);
+  }, []);
+
+  const refreshOutputs = useCallback(async () => {
+    if (!canPickOutput || !navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const outs = devs
+        .filter((d) => d.kind === 'audiooutput')
+        .map((d, i) => ({ id: d.deviceId, label: d.label || `Output ${i + 1}` }));
+      setOutputs(outs);
+    } catch {
+      /* enumerate blocked — leave the list empty (System default still works) */
+    }
+  }, [canPickOutput]);
+
+  const setOutputId = useCallback(
+    async (id: string) => {
+      setOutputIdState(id);
+      try {
+        localStorage.setItem('somm.sink', id);
+      } catch {
+        /* ignore */
+      }
+      const ctx = audioCtxRef.current as (AudioContext & { setSinkId?: (id: string) => Promise<void> }) | null;
+      if (ctx?.setSinkId) {
+        try {
+          await ctx.setSinkId(id === 'default' ? '' : id); // '' = system default
+        } catch {
+          /* device unplugged / not allowed — stays on the previous sink */
+        }
+      }
+    },
+    [],
+  );
 
   const next = useCallback(() => setIndex((i) => Math.min(i + 1, queueLenRef.current - 1)), []);
   const prev = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), []);
@@ -399,8 +591,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       autoDj,
       startAutoDj,
       stopAutoDj,
+      eqPreset,
+      setEqPreset,
+      nightMode,
+      setNightMode,
+      outputs,
+      outputId,
+      setOutputId,
+      refreshOutputs,
+      canPickOutput,
     }),
-    [queue, index, current, isPlaying, currentTime, duration, volume, normalizationDb, error, playQueue, toggle, next, prev, seek, setVolume, repeat, toggleRepeat, shuffle, autoDj, startAutoDj, stopAutoDj],
+    [queue, index, current, isPlaying, currentTime, duration, volume, normalizationDb, error, playQueue, toggle, next, prev, seek, setVolume, repeat, toggleRepeat, shuffle, autoDj, startAutoDj, stopAutoDj, eqPreset, setEqPreset, nightMode, setNightMode, outputs, outputId, setOutputId, refreshOutputs, canPickOutput],
   );
 
   return (
