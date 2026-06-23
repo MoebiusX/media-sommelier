@@ -210,6 +210,36 @@ export interface DuplicatesResult {
   groups: DupGroup[];
 }
 
+export interface MetaAlbumResult {
+  key: string;
+  album: string;
+  artist: string;
+  year: number | null;
+  trackCount: number;
+  discCount: number;
+  folders: string[];
+  folderCount: number;
+  integrated: boolean;
+  confidence: number;
+  evidence: string[];
+  sampleTracks: Array<{ path: string; title: string; trackNo: number | null; discNo: number | null; folder: string }>;
+}
+export interface MetadataReconResult {
+  stats: {
+    totalTracks: number;
+    placedTracks: number;
+    untaggedTracks: number;
+    albums: number;
+    multiTrackAlbums: number;
+    integratedAlbums: number;
+    integratedTracks: number;
+    singletonAlbums: number;
+  };
+  folderAlbums: number;
+  integratedTotal: number;
+  integrated: MetaAlbumResult[];
+}
+
 export interface ProfileSummary {
   id: number;
   name: string;
@@ -383,6 +413,7 @@ export const api = {
   allAlbums: () => get<BrowseAlbum[]>('/api/albums'),
   search: (q: string) => get<SearchResults>(`/api/search?q=${encodeURIComponent(q)}`),
   duplicates: () => get<DuplicatesResult>('/api/duplicates'),
+  reconstructMetadata: () => get<MetadataReconResult>('/api/reconstruct/metadata'),
 
   // ---- playlists ----
   playlists: () => get<PlaylistSummary[]>('/api/playlists'),

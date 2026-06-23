@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type OrganizeStatus, type PlanSummary, type Preset, type SimulateResult } from './api';
+import MetadataSim from './MetadataSim';
 
 /**
  * The organizer — the whole point of the app. Pick the messy source folder + a destination + a naming
@@ -388,6 +389,8 @@ export default function Organize({
           {job.state === 'error' && <div className="err-text">Organize failed: {job.error}</div>}
         </div>
       )}
+
+      <MetadataSim />
     </>
   );
 }
