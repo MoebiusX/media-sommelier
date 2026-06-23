@@ -34,6 +34,8 @@ export { readVideo, scanVideos, computeVideoStats, resolutionBucket } from './li
 export type { Video, VideoStats, VideoScanResult } from './library/videos.js';
 export { parseName } from './reconstruct/parseName.js';
 export { reconstruct } from './reconstruct/reconstruct.js';
+export { groupByMetadata } from './reconstruct/metadataAlbums.js';
+export type { MetaTrack, MetaAlbum, MetaAlbumTrack, MetadataGrouping } from './reconstruct/metadataAlbums.js';
 export { planOrganize, sanitizeSegment, ORGANIZE_PRESETS } from './organize/plan.js';
 export type { OrganizePlan, OrganizeAction, OrganizeOptions, AlbumEnrichment } from './organize/plan.js';
 export { executePlan } from './organize/execute.js';
