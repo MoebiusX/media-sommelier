@@ -5,10 +5,21 @@
 > named GATE command was actually run green — never on inspection. Update this file at every checkpoint
 > so a fresh session resumes without re-deriving the plan.
 >
-> **Last full-tree verification: 2026-06-23** — `npm test` → 119 passed (18 files); `npm run typecheck`
+> **Last full-tree verification: 2026-06-23** — `npm test` → 123 passed (19 files); `npm run typecheck`
 > clean; `npm run build:web` clean.
 >
-> **Latest feature (2026-06-23, `feat/premium-dark-theme` → `develop`): premium dark theme.** Decoded the
+> **Latest feature (2026-06-23, `feat/metadata-reconstruction` → `develop`): metadata album reconstruction
+> + simulate.** Folder `reconstruct()` groups by where files live; this groups by what tags SAY. New pure
+> engine `groupByMetadata` (`src/engine/reconstruct/metadataAlbums.ts`) buckets tag-level tracks by
+> (album-artist, album) — `normalize` + `stripDiscTokens` so disc/edition variants merge — and flags
+> "integrated" albums whose tracks span >1 source folder. Confidence capped ≤0.75 + evidence (I4). Server
+> `GET /api/reconstruct/metadata` runs it over the indexed `tracks` table (instant, read-only); web
+> `MetadataSim.tsx` panel in Organize shows a headline + stat chips + integrated-album cards (with the
+> folders each was scattered across). On the real library: **228 integrated albums reassemble 3,245
+> tracks** folders had scattered (compilations filed one-track-per-folder, etc.). Pure/offline/no deps.
+> Gates: `typecheck` + `test` (123, +4) + `build:web` green; reviewer-audited; verified live.
+>
+> **Feature (2026-06-23, `feat/premium-dark-theme` → `develop`): premium dark theme.** Decoded the
 > "advanced/sophisticated" dashboard aesthetic into the DARK theme (CSS-only): ambient bloom behind the app
 > (`--app-bloom`), richer accent gradient blue→violet→mint (`--accent-grad`) on brand mark / primary+play
 > buttons / avatars, colored glow on the brand + active nav/track accent bars (`--glow-accent*`), glass-edge
