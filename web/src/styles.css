@@ -23,6 +23,16 @@
   --overlay-bg: radial-gradient(1200px 600px at 50% -10%, rgba(124, 156, 255, 0.12), transparent 60%),
     linear-gradient(180deg, #0b0c0f 0%, #0c0d10 100%);
   --overlay-foot: rgba(12, 13, 16, 0.6);
+  /* "premium dark" depth: bloom, glow, glass, gradient ink (neutralized under [data-theme='light']) */
+  --accent-grad: linear-gradient(135deg, #7c9cff 0%, #9d7bff 52%, #5fe3c0 100%);
+  --title-grad: linear-gradient(100deg, #eef1ff 0%, #a8baff 52%, #84e3c8 100%);
+  --glow-accent: 0 0 18px rgba(124, 156, 255, 0.3);
+  --glow-accent-sm: 0 0 10px rgba(124, 156, 255, 0.32);
+  --surface-hi: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --elev-glass: rgba(20, 22, 27, 0.82);
+  --glass-blur: blur(16px);
+  --app-bloom: radial-gradient(820px 460px at 16% -8%, rgba(124, 156, 255, 0.12), transparent 60%),
+    radial-gradient(720px 460px at 88% -6%, rgba(157, 123, 255, 0.09), transparent 58%);
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.25);
@@ -57,6 +67,14 @@
     linear-gradient(180deg, #ffffff 0%, #eef1f5 100%);
   --overlay-foot: rgba(255, 255, 255, 0.7);
   --shadow: 0 1px 2px rgba(20, 30, 50, 0.08), 0 10px 28px rgba(20, 30, 50, 0.1);
+  --accent-grad: linear-gradient(135deg, #3b5bdb 0%, #6a45c9 52%, #0e9f74 100%);
+  --title-grad: none; /* light uses solid ink — see .page-title / .brand-name overrides */
+  --glow-accent: 0 0 0 0 transparent;
+  --glow-accent-sm: 0 0 0 0 transparent;
+  --surface-hi: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --elev-glass: rgba(255, 255, 255, 0.92);
+  --glass-blur: blur(12px);
+  --app-bloom: radial-gradient(820px 460px at 50% -10%, rgba(59, 91, 219, 0.05), transparent 62%);
   color-scheme: light;
 }
 
@@ -96,10 +114,25 @@ body {
 
 /* ---------- App shell ---------- */
 .app {
+  position: relative;
   display: grid;
   grid-template-columns: auto 1fr; /* the sidebar sets its own width (drag-resizable) */
   height: 100vh;
   overflow: hidden;
+}
+/* ambient bloom: soft accent glows behind everything (atmospheric depth, not flat) */
+.app::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: var(--app-bloom);
+}
+.sidebar,
+.main {
+  position: relative;
+  z-index: 1;
 }
 
 .sidebar {
@@ -164,8 +197,8 @@ body.resizing {
   height: 30px;
   border-radius: 8px;
   flex: none;
-  background: linear-gradient(140deg, var(--accent) 0%, var(--accent-2) 100%);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06) inset, 0 4px 14px rgba(124, 156, 255, 0.25);
+  background: var(--accent-grad);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, var(--glow-accent);
 }
 .brand-name {
   font-weight: 650;
@@ -174,6 +207,10 @@ body.resizing {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  background: var(--title-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 .brand-sub {
   color: var(--text-faint);
@@ -411,6 +448,7 @@ body.resizing {
   height: 18px;
   border-radius: 2px;
   background: var(--accent);
+  box-shadow: var(--glow-accent-sm);
 }
 .sidebar.collapsed .nav-item.active::before {
   display: none;
@@ -685,6 +723,16 @@ body.resizing {
   font-weight: 720;
   letter-spacing: -0.022em;
   margin: 0 0 5px;
+  background: var(--title-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+/* light theme: solid ink (gradient-on-white reads poorly) */
+:root[data-theme='light'] .page-title,
+:root[data-theme='light'] .brand-name {
+  background: none;
+  -webkit-text-fill-color: var(--text);
 }
 .page-lede {
   color: var(--text-dim);
@@ -704,6 +752,7 @@ body.resizing {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px 16px 14px;
+  box-shadow: var(--surface-hi);
 }
 .stat-label {
   color: var(--text-faint);
@@ -730,6 +779,7 @@ body.resizing {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px 22px;
+  box-shadow: var(--surface-hi);
 }
 .panel + .panel,
 .panel-row + .panel,
@@ -967,7 +1017,7 @@ body.resizing {
   font-weight: 650;
   font-size: 15px;
   color: var(--on-accent);
-  background: linear-gradient(140deg, var(--accent), var(--accent-2));
+  background: var(--accent-grad);
   box-shadow: 0 2px 8px rgba(124, 156, 255, 0.18);
 }
 .row .row-main {
@@ -1018,6 +1068,76 @@ body.resizing {
   color: var(--text-faint);
   font-size: 12px;
   margin: 0 2px 10px;
+}
+
+/* metadata reconstruction — "integrated" album cards (tracks pulled from multiple folders) */
+.meta-albums {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.meta-album {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  padding: 12px 14px;
+  box-shadow: var(--surface-hi);
+}
+.meta-album-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.meta-album-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.meta-album-by {
+  color: var(--text-faint);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+  max-width: 45%;
+}
+.meta-album-facts {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+.meta-album-facts .meta-from {
+  color: var(--accent);
+  font-weight: 560;
+}
+.meta-folders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 9px;
+}
+.meta-folder {
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  padding: 2px 7px;
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.meta-folder.more {
+  color: var(--text-faint);
+  background: transparent;
 }
 .load-more {
   display: block;
@@ -1268,6 +1388,7 @@ body.resizing {
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--bg-elev);
+  box-shadow: var(--surface-hi);
 }
 .trk {
   position: relative;
@@ -1531,7 +1652,7 @@ select.sb-input {
   color: var(--text-dim);
 }
 .btn.primary {
-  background: linear-gradient(140deg, var(--accent), var(--accent-2));
+  background: var(--accent-grad);
   border-color: transparent;
   color: var(--on-accent);
   font-weight: 640;
@@ -2221,6 +2342,7 @@ select.sb-input {
   bottom: 0;
   width: 3px;
   background: var(--accent);
+  box-shadow: var(--glow-accent-sm);
 }
 .trk.active .tt {
   color: var(--accent);
@@ -2521,7 +2643,7 @@ select.sb-input {
 .pbtn.play {
   width: 38px;
   height: 38px;
-  background: linear-gradient(140deg, var(--accent), var(--accent-2));
+  background: var(--accent-grad);
   color: var(--on-accent);
 }
 .pbtn.play:hover:not(:disabled) {

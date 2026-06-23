@@ -36,6 +36,8 @@ import {
   type StyleFamily,
   walkToArray,
   reconstruct,
+  groupByMetadata,
+  metadataCandidates,
   planOrganize,
   executePlan,
   sanitizeSegment,
@@ -415,6 +417,52 @@ async function simulateSchemes(
     .filter((s) => s.key !== 'flat')
     .sort((a, b) => a.sparseFolders - b.sparseFolders || a.folders - b.folders);
   return { source, schemes, recommended: ranked[0]?.key ?? null };
+}
+
+/* ---- metadata reconstruction: group the indexed catalog by embedded album tags (vs folders) ----
+ * Folder reconstruct() groups by where files live; this groups by what their tags say, so an album
+ * scattered across folders is made whole ("integrated"). Runs over the already-indexed `tracks` table
+ * (tag-rich), so it's instant and needs no re-walk. READ-ONLY. */
+function reconstructMetadata(db: Database.Database, res: ServerResponse): void {
+  const rows = db
+    .prepare('SELECT path, artistName AS artist, album, title, trackNo, discNo, year FROM tracks')
+    .all() as Array<{
+    path: string;
+    artist: string | null;
+    album: string | null;
+    title: string | null;
+    trackNo: number | null;
+    discNo: number | null;
+    year: number | null;
+  }>;
+  const grouping = groupByMetadata(rows);
+  const folderAlbums = (db.prepare('SELECT COUNT(*) AS n FROM albums').get() as { n: number }).n;
+  const integrated = grouping.albums.filter((a) => a.integrated);
+  json(res, 200, {
+    stats: grouping.stats,
+    folderAlbums,
+    integratedTotal: integrated.length,
+    integrated: integrated.slice(0, 100), // cap payload; stats cover the rest
+  });
+}
+
+/** Build an organize plan from the indexed catalog grouped by tags (metadata reconstruction). READ-only. */
+function metadataPlanFor(db: Database.Database, dest: string, presetKey: string): OrganizePlan {
+  const rows = db
+    .prepare('SELECT path, artistName AS artist, album, title, trackNo, discNo, year, sizeBytes FROM tracks')
+    .all() as Array<{
+    path: string;
+    artist: string | null;
+    album: string | null;
+    title: string | null;
+    trackNo: number | null;
+    discNo: number | null;
+    year: number | null;
+    sizeBytes: number | null;
+  }>;
+  const candidates = metadataCandidates(rows);
+  const preset = ORGANIZE_PRESETS[presetKey];
+  return planOrganize(candidates, { destRoot: dest, ...(preset ? { template: preset.template } : {}) });
 }
 
 /* ===================== sync profiles (a hand-picked subset → an external drive) =====================
@@ -1141,9 +1189,10 @@ function activeJobs(): Array<{ type: string; phase: string; done: number; total:
  * the worker uses executePlan with the dest-outside-source guard.
  */
 function organizeHandler(ctx: JobCtx): Promise<unknown> {
-  const { source, dest, preset, writeTags } = ctx.params as { source: string; dest: string; preset: string; writeTags: boolean };
+  const { source, dest, preset, writeTags, mode } = ctx.params as { source: string; dest: string; preset: string; writeTags: boolean; mode?: string };
+  const workerMode = mode === 'metadata' ? 'metadata' : 'folder';
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', WORKER, source, dest, preset, String(writeTags)], {
+    const child = spawn(process.execPath, ['--import', 'tsx', WORKER, source ?? '', dest, preset, String(writeTags), workerMode], {
       cwd: process.cwd(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -1845,16 +1894,31 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
       sample: plan.actions.slice(0, 60).map((a) => a.destRelPath),
     });
   }
+  if (path === '/api/organize/metadata/plan' && method === 'POST') {
+    const b = await readBody(req);
+    const dest = String(b.dest ?? '').trim();
+    const preset = String(b.preset ?? 'artist-album');
+    if (!dest) return json(res, 400, { ok: false, error: 'need_dest' });
+    const plan = metadataPlanFor(db, dest, preset);
+    return json(res, 200, {
+      actions: plan.actions.length,
+      collisions: plan.collisions.length,
+      skipped: plan.skipped.length,
+      sample: plan.actions.slice(0, 60).map((a) => a.destRelPath),
+    });
+  }
   if (path === '/api/organize/run' && method === 'POST') {
     const b = await readBody(req);
+    const mode = b.mode === 'metadata' ? 'metadata' : 'folder';
     const source = String(b.source ?? '').trim();
     const dest = String(b.dest ?? '').trim();
     const preset = String(b.preset ?? 'artist-year-album');
     const writeTags = !!b.writeTags;
-    if (!source || !dest) return json(res, 400, { ok: false, error: 'need_source_and_dest' });
+    if (!dest || (mode === 'folder' && !source))
+      return json(res, 400, { ok: false, error: 'need_source_and_dest' });
     if (jobs.latest('organize')?.state === 'running')
       return json(res, 409, { ok: false, error: 'organize_in_progress', job: organizeStatusPayload() });
-    jobs.enqueue('organize', { source, dest, preset, writeTags });
+    jobs.enqueue('organize', { source, dest, preset, writeTags, mode });
     return json(res, 202, { ok: true, job: organizeStatusPayload() });
   }
   if (path === '/api/organize/status') return json(res, 200, organizeStatusPayload());
@@ -2163,6 +2227,7 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
   if (path === '/api/albums') return allAlbums(db, res);
   if (path === '/api/search') return search(db, res, url.searchParams.get('q') ?? '');
   if (path === '/api/duplicates') return duplicates(db, res);
+  if (path === '/api/reconstruct/metadata') return reconstructMetadata(db, res);
   if (path === '/api/cover') return cover(db, res, url.searchParams);
   if (path === '/api/audio') return serveAudio(db, req, res, url.searchParams);
   if (path === '/api/lyrics') return serveLyrics(db, res, url.searchParams);

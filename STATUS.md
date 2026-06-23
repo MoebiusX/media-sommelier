@@ -5,10 +5,47 @@
 > named GATE command was actually run green — never on inspection. Update this file at every checkpoint
 > so a fresh session resumes without re-deriving the plan.
 >
-> **Last full-tree verification: 2026-06-23** — `npm test` → 119 passed (18 files); `npm run typecheck`
+> **Last full-tree verification: 2026-06-23** — `npm test` → 125 passed (19 files); `npm run typecheck`
 > clean; `npm run build:web` clean.
 >
-> **Latest feature (2026-06-23, `feat/light-theme` → `develop`): light theme + dark/light toggle.**
+> **MVP COMPLETE (2026-06-23).** Both reconstruction axes now plan AND execute: folder-based (Organize
+> naming scheme) and tag-based (metadata). The app does the full arc: ingest → browse/play (lyrics, Auto
+> DJ, EQ/night/crossfade, ReplayGain) → reconstruct (folders OR metadata) → organize into a clean COPY
+> tree → drive-sync. Light/dark themes. Originals never mutated.
+>
+> **Latest feature (2026-06-23, `feat/organize-by-metadata` → `develop`): organize BY metadata (plan +
+> execute).** `metadataCandidates()` (`src/engine/reconstruct/metadataAlbums.ts`, shares `bucketize` with
+> `groupByMetadata`) turns the (album-artist, album) tag grouping into `AlbumCandidate[]` with collision-
+> free disc positions (keep real trackNo when free, else next slot); conf ≤0.75 + evidence (I4). The
+> organize child-process worker gains a `metadata` mode (builds candidates from the indexed catalog, uses
+> the indexed root as the dest-outside-source guard — and now hard-fails if that root is missing); reuses
+> `planOrganize` + `executePlan` (copy-only, hash-verified, collisions failed, idempotent). `POST
+> /api/organize/metadata/plan` (dry run) + `/api/organize/run` `mode:'metadata'`; web "Reorganize by
+> metadata" panel (`MetadataSim`). Reviewer-PANEL audited (4 lenses → SAFE TO MERGE). Verified live: plan
+> over the real catalog = 9,432 files, 0 collisions/skipped; bounded execute copied real files into the
+> `Artist/Album/NN - Title` tag tree (atomic temp→rename), source untouched. Gates: `typecheck` + `test`
+> (125, +2) + `build:web` green.
+>
+> **Feature (2026-06-23, `feat/metadata-reconstruction` → `develop`): metadata album reconstruction
+> + simulate.** Folder `reconstruct()` groups by where files live; this groups by what tags SAY. New pure
+> engine `groupByMetadata` (`src/engine/reconstruct/metadataAlbums.ts`) buckets tag-level tracks by
+> (album-artist, album) — `normalize` + `stripDiscTokens` so disc/edition variants merge — and flags
+> "integrated" albums whose tracks span >1 source folder. Confidence capped ≤0.75 + evidence (I4). Server
+> `GET /api/reconstruct/metadata` runs it over the indexed `tracks` table (instant, read-only); web
+> `MetadataSim.tsx` panel in Organize shows a headline + stat chips + integrated-album cards (with the
+> folders each was scattered across). On the real library: **228 integrated albums reassemble 3,245
+> tracks** folders had scattered (compilations filed one-track-per-folder, etc.). Pure/offline/no deps.
+> Gates: `typecheck` + `test` (123, +4) + `build:web` green; reviewer-audited; verified live.
+>
+> **Feature (2026-06-23, `feat/premium-dark-theme` → `develop`): premium dark theme.** Decoded the
+> "advanced/sophisticated" dashboard aesthetic into the DARK theme (CSS-only): ambient bloom behind the app
+> (`--app-bloom`), richer accent gradient blue→violet→mint (`--accent-grad`) on brand mark / primary+play
+> buttons / avatars, colored glow on the brand + active nav/track accent bars (`--glow-accent*`), glass-edge
+> inset highlight on panels/stat/tracks (`--surface-hi`), and gradient "ink" on page titles + brand name
+> (`--title-grad`). All token-driven and **neutralized under `[data-theme='light']`** so light stays clean.
+> Verified live in both themes; `typecheck` + `test` (119) + `build:web` green; zero console errors.
+>
+> **Feature (2026-06-23, `feat/light-theme` → `develop`): light theme + dark/light toggle.**
 > Theme-sensitive hardcoded colors tokenized (text-on-accent, scrollbar, cover fallback, player bar,
 > lyrics overlay) into CSS vars; `:root[data-theme='light']` overrides the palette (deepened accents for
 > white) with dark as default. `web/src/theme.ts` resolves stored choice → OS `prefers-color-scheme`; a
