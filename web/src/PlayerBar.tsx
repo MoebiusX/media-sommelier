@@ -5,6 +5,7 @@ import { fmtDuration } from './api';
 import { Cover } from './ui';
 import Lyrics from './Lyrics';
 import { AutoDjPicker } from './AutoDj';
+import AudioSettings from './AudioSettings';
 
 function clock(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) sec = 0;
@@ -67,6 +68,12 @@ const LyricsIco = () => (
     <path d="M21 15.5V8l-3 1" />
   </svg>
 );
+const EqIco = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M6 20V14M6 10V4M12 20V12M12 8V4M18 20V16M18 12V4" />
+    <path d="M3 14h6M9 8h6M15 16h6" />
+  </svg>
+);
 const RadioIco = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d="M4.5 9.5 18 4" />
@@ -85,6 +92,7 @@ export default function PlayerBar({
   const [showQueue, setShowQueue] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
   const [showDj, setShowDj] = useState(false);
+  const [showAudio, setShowAudio] = useState(false);
   const cur = p.current;
   if (!cur) return null;
 
@@ -198,6 +206,14 @@ export default function PlayerBar({
           <LyricsIco />
         </button>
         <button
+          className={'pbtn qbtn' + (showAudio || p.nightMode || p.eqPreset !== 'flat' ? ' on' : '')}
+          onClick={() => setShowAudio((v) => !v)}
+          aria-label="Audio settings"
+          title="Audio — EQ, night mode, output device"
+        >
+          <EqIco />
+        </button>
+        <button
           className={'pbtn qbtn' + (showQueue ? ' on' : '')}
           onClick={() => setShowQueue((v) => !v)}
           aria-label="Queue"
@@ -274,6 +290,7 @@ export default function PlayerBar({
       )}
     </div>
     {showLyrics && <Lyrics onClose={() => setShowLyrics(false)} />}
+    <AudioSettings open={showAudio} onClose={() => setShowAudio(false)} />
     <AutoDjPicker open={showDj} onClose={() => setShowDj(false)} />
     </>
   );

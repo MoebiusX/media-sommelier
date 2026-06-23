@@ -2203,6 +2203,96 @@ select.sb-input {
   background: var(--accent-soft);
 }
 
+/* audio settings popover (anchored above the bar) — EQ / night mode / output device */
+.audio-pop {
+  position: absolute;
+  right: 16px;
+  bottom: 80px;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  z-index: 50;
+}
+.audio-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.audio-sec {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.audio-sec:last-child {
+  border-bottom: none;
+}
+.audio-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+.audio-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.audio-chip {
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.audio-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.audio-chip.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.audio-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.audio-toggle input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.audio-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.audio-select {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
 /* queue popover (anchored above the bar) */
 .queue-pop {
   position: absolute;
