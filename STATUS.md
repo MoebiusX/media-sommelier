@@ -8,7 +8,40 @@
 > **Last full-tree verification: 2026-06-23** — `npm test` → 119 passed (18 files); `npm run typecheck`
 > clean; `npm run build:web` clean.
 >
-> **Latest feature (2026-06-23, `feat/player-sound-quality` → `develop`): player sound quality — quick
+> **Latest feature (2026-06-23, `feat/light-theme` → `develop`): light theme + dark/light toggle.**
+> Theme-sensitive hardcoded colors tokenized (text-on-accent, scrollbar, cover fallback, player bar,
+> lyrics overlay) into CSS vars; `:root[data-theme='light']` overrides the palette (deepened accents for
+> white) with dark as default. `web/src/theme.ts` resolves stored choice → OS `prefers-color-scheme`; a
+> sun/moon toggle in the sidebar foot persists it; an inline script in `index.html` applies it pre-paint
+> (no flash). Gates: `typecheck` + `test` (119) + `build:web` green; verified live (toggle + persist +
+> reload, both themes across Library/album/player/Overview; zero console errors).
+>
+> **Feature (2026-06-23, `feat/ui-navigation-polish` → `develop`): navigation reorg + UI polish.**
+> Sidebar extracted to `web/src/Sidebar.tsx`: grouped nav (Listen: Library/Playlists/Auto DJ · Manage:
+> Organize/Sync · Overview), **lands on Library** by default (was Organize); collapsible to an icon rail
+> (persisted) + **drag-to-resize** width (persisted, 200–360px; the `.app` grid column follows via
+> `auto 1fr`); a **now-playing card** (cover + title/artist + EQ). Bolder content refresh (CSS-only):
+> artist rows (hover accent bar + chevron slide), album cards (hover lift + cover shadow), track table
+> (elevated surface + active-row accent bar), buttons (lift + primary glow), bigger page titles. Auto DJ
+> moved into the Listen group (`AutoDjLauncher` removed). Gates: `typecheck` + `test` (119) + `build:web`
+> green; reviewer-audited (SAFE TO MERGE); verified live (collapse 248↔64, resize→312 persisted, routing,
+> now-playing card, refreshed Library/album/track views; zero console errors).
+>
+> **Feature (2026-06-23, `feat/player-audio-tier2` → `develop`): player sound quality — Tier 2.**
+> Built on the Tier 1 graph. **(1) EQ presets** — 3 biquad bands (lowshelf 120Hz / peak 1.5kHz / highshelf
+> 6kHz), Flat/Bass/Vocal/Treble. **(2) Night/room mode** — a `DynamicsCompressorNode` (+makeup gain) that
+> lifts quiet passages so vocals carry across a room; transparent bypass (ratio 1) when off. **(3) Output
+> picker** — `AudioContext.setSinkId` (Chromium, feature-detected, graceful). **(4) Equal-power crossfade**
+> — both `<audio>` elements routed through the graph (`el → rg → fade → shared EQ/comp/makeup/userGain`);
+> the inactive element preloads the next track, and on automatic track-end an equal-power ramp fades across
+> and role-swaps which element is active. Opt-in (Off/2/4/8s, persisted) so default is unchanged; album
+> seams (same albumId) stay gapless; manual transport cancels any in-flight fade. Chain is
+> `rg → EQ → compressor → makeup → userGain(volume) → destination` (volume last). New `AudioSettings`
+> popover in the PlayerBar. Gates: `typecheck` + `test` (119) + `build:web` green; reviewer-audited;
+> verified live (Bass +6/+2 dB; night ratio 5/−32 dB/+5 dB makeup; cross-album crossfade equal-power
+> 0.6²+0.8²=1 then a→b swap; same-album advanced gaplessly; manual next cancelled cleanly; zero errors).
+>
+> **Feature (2026-06-23, `feat/player-sound-quality` → `develop`): player sound quality — quick
 > wins.** A single Web Audio graph now backs playback: `MediaElementSource → normGain (ReplayGain) →
 > userGain (perceptual volume) → destination` (built lazily on the first user gesture; element output
 > moved off `.volume` onto the graph). **(1) Perceptual volume** — the linear slider is mapped through a
