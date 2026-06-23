@@ -614,10 +614,10 @@ body.resizing {
 }
 
 .page-title {
-  font-size: 26px;
-  font-weight: 680;
-  letter-spacing: -0.02em;
-  margin: 0 0 4px;
+  font-size: 28px;
+  font-weight: 720;
+  letter-spacing: -0.022em;
+  margin: 0 0 5px;
 }
 .page-lede {
   color: var(--text-dim);
@@ -862,28 +862,46 @@ body.resizing {
   flex-direction: column;
 }
 .row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 11px 14px;
+  gap: 13px;
+  padding: 10px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.12s;
 }
 .row:hover {
   background: var(--bg-hover);
 }
+/* accent bar slides in on hover (matches the sidebar active treatment) */
+.row::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%) scaleY(0);
+  width: 3px;
+  height: 20px;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: transform 0.12s;
+}
+.row:hover::before {
+  transform: translateY(-50%) scaleY(1);
+}
 .row .avatar {
   width: 38px;
   height: 38px;
-  border-radius: 9px;
+  border-radius: 10px;
   flex: none;
   display: grid;
   place-items: center;
   font-weight: 650;
   font-size: 15px;
   color: #0c0d10;
-  background: linear-gradient(140deg, #7c9cff, #8de0c0);
+  background: linear-gradient(140deg, var(--accent), var(--accent-2));
+  box-shadow: 0 2px 8px rgba(124, 156, 255, 0.18);
 }
 .row .row-main {
   flex: 1;
@@ -894,6 +912,10 @@ body.resizing {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: color 0.12s;
+}
+.row:hover .row-title {
+  color: var(--accent);
 }
 .row .row-sub {
   color: var(--text-faint);
@@ -901,6 +923,11 @@ body.resizing {
 }
 .row .chev {
   color: var(--text-faint);
+  transition: transform 0.12s, color 0.12s;
+}
+.row:hover .chev {
+  color: var(--text-dim);
+  transform: translateX(2px);
 }
 
 .search {
@@ -968,6 +995,7 @@ body.resizing {
 .lib-tabs button.on {
   background: var(--accent-soft);
   color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25), inset 0 0 0 1px rgba(124, 156, 255, 0.25);
 }
 
 .albums-controls {
@@ -1010,10 +1038,10 @@ body.resizing {
 .album-card {
   cursor: pointer;
   border-radius: var(--radius);
-  transition: transform 0.12s;
+  transition: transform 0.14s;
 }
 .album-card:hover {
-  transform: translateY(-3px);
+  transform: translateY(-4px);
 }
 .cover {
   aspect-ratio: 1;
@@ -1025,6 +1053,18 @@ body.resizing {
   position: relative;
   display: grid;
   place-items: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: box-shadow 0.14s;
+}
+.album-card:hover .cover {
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  border-color: var(--accent);
+}
+.album-card:hover .album-name {
+  color: var(--accent);
+}
+.album-name {
+  transition: color 0.12s;
 }
 .cover img {
   width: 100%;
@@ -1160,8 +1200,10 @@ body.resizing {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  background: var(--bg-elev);
 }
 .trk {
+  position: relative;
   display: grid;
   grid-template-columns: 36px 1fr 90px 70px 30px;
   align-items: center;
@@ -1169,6 +1211,14 @@ body.resizing {
   padding: 10px 16px;
   font-size: 13.5px;
   border-top: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.trk:first-child {
+  border-top: none;
+}
+.trk:hover {
+  background: var(--bg-hover);
 }
 .pl-add {
   opacity: 0.32;
@@ -1392,8 +1442,18 @@ select.sb-input {
   transition: border-color 0.12s, background 0.12s, filter 0.12s, opacity 0.12s;
   white-space: nowrap;
 }
+.btn {
+  transition: border-color 0.12s, transform 0.1s, background 0.12s, filter 0.12s;
+}
 .btn:hover:not(:disabled) {
   border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+.btn.ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
 }
 .btn:disabled {
   opacity: 0.45;
@@ -1408,6 +1468,7 @@ select.sb-input {
   border-color: transparent;
   color: #0c0d10;
   font-weight: 640;
+  box-shadow: 0 2px 12px rgba(124, 156, 255, 0.28);
 }
 .btn.primary:hover:not(:disabled) {
   filter: brightness(1.07);
@@ -2084,6 +2145,15 @@ select.sb-input {
 }
 .trk.active {
   background: var(--accent-soft);
+}
+.trk.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
 }
 .trk.active .tt {
   color: var(--accent);
