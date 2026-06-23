@@ -449,6 +449,10 @@ export const api = {
   simulateSchemes: (source: string) => post<SimulateResult>('/api/organize/simulate', { source }),
   startOrganize: (b: { source: string; dest: string; preset: string; writeTags: boolean }) =>
     post<{ ok: boolean }>('/api/organize/run', b),
+  organizeMetadataPlan: (b: { dest: string; preset?: string }) =>
+    post<PlanSummary>('/api/organize/metadata/plan', b),
+  startOrganizeMetadata: (b: { dest: string; preset?: string; writeTags?: boolean }) =>
+    post<{ ok: boolean; error?: string; job: OrganizeStatus }>('/api/organize/run', { ...b, mode: 'metadata' }),
   organizeStatus: () => get<OrganizeStatus>('/api/organize/status'),
   cancelOrganize: () => post<{ ok: boolean }>('/api/organize/cancel', {}),
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupByMetadata, type MetaTrack } from '../src/engine/index.js';
+import { groupByMetadata, metadataCandidates, planOrganize, type MetaTrack } from '../src/engine/index.js';
 
 const t = (path: string, artist: string | null, album: string | null, trackNo: number | null, extra: Partial<MetaTrack> = {}): MetaTrack => ({
   path,
@@ -58,5 +58,38 @@ describe('groupByMetadata', () => {
     expect(stats.untaggedTracks).toBe(1);
     expect(stats.placedTracks).toBe(1);
     expect(stats.albums).toBe(1);
+  });
+});
+
+describe('metadataCandidates → planOrganize', () => {
+  it('routes scattered same-album tracks into one album folder, collision-free', () => {
+    const tracks: MetaTrack[] = [
+      t('/m/a/01.flac', 'NSYNC', 'No Strings Attached', 1, { title: 'Bye Bye Bye' }),
+      t('/m/loose/x.mp3', 'NSYNC', 'No Strings Attached', 2, { title: "It's Gonna Be Me" }),
+      t('/m/various/y.mp3', 'NSYNC', 'No Strings Attached', null, { title: 'Space Cowboy' }), // no trackNo
+    ];
+    const cands = metadataCandidates(tracks);
+    expect(cands).toHaveLength(1);
+    expect(cands[0]!.confidence).toBeLessThanOrEqual(0.75);
+
+    const plan = planOrganize(cands, { destRoot: 'OUT', template: '{albumArtist}/{album}/{track} - {title}' });
+    expect(plan.actions).toHaveLength(3);
+    expect(plan.collisions).toHaveLength(0);
+    // all three land under the same album folder
+    const albumFolders = new Set(plan.actions.map((a) => a.destRelPath.split('/').slice(0, 2).join('/')));
+    expect(albumFolders.size).toBe(1);
+    expect([...albumFolders][0]).toMatch(/NSYNC\/No Strings Attached/);
+    // tracks 1 & 2 keep their number; the untagged one takes the next free slot (3)
+    expect(plan.actions.map((a) => a.tags.trackNo).sort((x, y) => x - y)).toEqual([1, 2, 3]);
+  });
+
+  it('keeps multi-disc albums collision-free across discs', () => {
+    const tracks: MetaTrack[] = [
+      t('/m/cd1/01.flac', 'X', 'Y', 1, { discNo: 1 }),
+      t('/m/cd2/01.flac', 'X', 'Y', 1, { discNo: 2 }),
+    ];
+    const cands = metadataCandidates(tracks);
+    expect(cands[0]!.discs).toHaveLength(2);
+    expect(planOrganize(cands, { destRoot: 'OUT' }).collisions).toHaveLength(0);
   });
 });
