@@ -1,7 +1,7 @@
 // Audio settings popover (anchored above the player bar): EQ presets, night/room mode, output device.
 // Everything drives the Web Audio graph owned by PlayerProvider — see player.tsx.
 import { useEffect } from 'react';
-import { usePlayer, EQ_PRESETS, type EqPreset } from './player';
+import { usePlayer, EQ_PRESETS, CROSSFADE_OPTIONS, type EqPreset } from './player';
 
 export default function AudioSettings({ open, onClose }: { open: boolean; onClose: () => void }) {
   const p = usePlayer();
@@ -48,6 +48,22 @@ export default function AudioSettings({ open, onClose }: { open: boolean; onClos
           <span>Night / room mode</span>
         </label>
         <div className="audio-hint">Lifts quiet passages so vocals carry across a room.</div>
+      </div>
+
+      <div className="audio-sec">
+        <div className="audio-label">Crossfade</div>
+        <div className="audio-chips">
+          {CROSSFADE_OPTIONS.map((s) => (
+            <button
+              key={s}
+              className={'audio-chip' + (p.crossfadeSec === s ? ' on' : '')}
+              onClick={() => p.setCrossfadeSec(s)}
+            >
+              {s === 0 ? 'Off' : `${s}s`}
+            </button>
+          ))}
+        </div>
+        <div className="audio-hint">Blends into the next track (great for Auto DJ); albums stay gapless.</div>
       </div>
 
       {p.canPickOutput && (
