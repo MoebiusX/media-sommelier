@@ -8,7 +8,15 @@
 > **Last full-tree verification: 2026-06-23** — `npm test` → 119 passed (18 files); `npm run typecheck`
 > clean; `npm run build:web` clean.
 >
-> **Latest feature (2026-06-23, `feat/light-theme` → `develop`): light theme + dark/light toggle.**
+> **Latest feature (2026-06-23, `feat/premium-dark-theme` → `develop`): premium dark theme.** Decoded the
+> "advanced/sophisticated" dashboard aesthetic into the DARK theme (CSS-only): ambient bloom behind the app
+> (`--app-bloom`), richer accent gradient blue→violet→mint (`--accent-grad`) on brand mark / primary+play
+> buttons / avatars, colored glow on the brand + active nav/track accent bars (`--glow-accent*`), glass-edge
+> inset highlight on panels/stat/tracks (`--surface-hi`), and gradient "ink" on page titles + brand name
+> (`--title-grad`). All token-driven and **neutralized under `[data-theme='light']`** so light stays clean.
+> Verified live in both themes; `typecheck` + `test` (119) + `build:web` green; zero console errors.
+>
+> **Feature (2026-06-23, `feat/light-theme` → `develop`): light theme + dark/light toggle.**
 > Theme-sensitive hardcoded colors tokenized (text-on-accent, scrollbar, cover fallback, player bar,
 > lyrics overlay) into CSS vars; `:root[data-theme='light']` overrides the palette (deepened accents for
 > white) with dark as default. `web/src/theme.ts` resolves stored choice → OS `prefers-color-scheme`; a
