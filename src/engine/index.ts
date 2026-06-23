@@ -18,6 +18,10 @@ export { readTags } from './inventory/tags.js';
 export type { TagInfo } from './inventory/tags.js';
 export { readCover } from './inventory/cover.js';
 export type { Cover } from './inventory/cover.js';
+export { readLyrics, parseLrc } from './inventory/lyrics.js';
+export type { Lyrics, LyricLine } from './inventory/lyrics.js';
+export { readReplayGain } from './inventory/loudness.js';
+export type { ReplayGain } from './inventory/loudness.js';
 export { scanLibrary } from './library/scan.js';
 export type { Track, ScanLibraryOptions } from './library/scan.js';
 export { scanLibraryCached } from './library/catalog.js';
@@ -49,4 +53,14 @@ export { fingerprintFile, fpcalcPath, fpcalcAvailable } from './enrich/fpcalc.js
 export type { Fingerprint } from './enrich/fpcalc.js';
 export { AcoustIdClient, parseLookupResponse } from './enrich/acoustid.js';
 export type { AcoustIdResult, AcoustIdMatch } from './enrich/acoustid.js';
+export {
+  classifyGenre,
+  isMood,
+  isStyleFamily,
+  STYLE_LABELS,
+  MOOD_LABELS,
+} from './dj/genreMood.js';
+export type { StyleFamily, Mood, GenreClass } from './dj/genreMood.js';
+export { autoDj } from './dj/autoDj.js';
+export type { DjTrack, DjOptions, DjPick, DjSet } from './dj/autoDj.js';
 export { humanBytes, normalize, titleKey, plausibleDurationMs } from './text.js';

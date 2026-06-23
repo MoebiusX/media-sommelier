@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "cli": "tsx src/cli/index.ts",
     "ui": "tsx src/server/index.ts",
+    "start": "npm run dev",
     "dev": "concurrently -n api,web -c yellow,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "tsx watch src/server2/index.ts",
     "dev:web": "npm --prefix web run dev",

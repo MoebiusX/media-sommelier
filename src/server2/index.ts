@@ -22,6 +22,18 @@ import { createRequire } from 'node:module';
 import Database from 'better-sqlite3';
 import {
   readCover,
+  readLyrics,
+  parseLrc,
+  readReplayGain,
+  autoDj,
+  classifyGenre,
+  isMood,
+  isStyleFamily,
+  STYLE_LABELS,
+  MOOD_LABELS,
+  type DjTrack,
+  type Mood,
+  type StyleFamily,
   walkToArray,
   reconstruct,
   planOrganize,
@@ -1506,6 +1518,11 @@ const AUDIO_MIME: Record<string, string> = {
   aif: 'audio/aiff',
 };
 
+/** Source files are immutable for a session, so let the browser cache them — this is what makes the
+ *  player's next-track preload (a hidden warmer <audio>) pay off: the bytes are already cached when the
+ *  main element advances. private = never shared by a proxy (paths are local + sensitive). */
+const AUDIO_CACHE = 'private, max-age=3600';
+
 /** Attach an error handler so a mid-stream read failure ends the response instead of crashing. */
 function pipeSafe(stream: ReturnType<typeof createReadStream>, res: ServerResponse): void {
   stream.on('error', () => {
@@ -1552,7 +1569,7 @@ async function serveAudio(
     let start = Number(m[1]);
     let end = m[2] ? Number(m[2]) : size - 1;
     if (!Number.isFinite(start) || !Number.isFinite(end)) {
-      res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': size });
+      res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': size, 'Cache-Control': AUDIO_CACHE });
       pipeSafe(createReadStream(rawPath), res);
       return;
     }
@@ -1567,12 +1584,211 @@ async function serveAudio(
       'Accept-Ranges': 'bytes',
       'Content-Range': `bytes ${start}-${end}/${size}`,
       'Content-Length': end - start + 1,
+      'Cache-Control': AUDIO_CACHE,
     });
     pipeSafe(createReadStream(rawPath, { start, end }), res);
   } else {
-    res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': size });
+    res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': size, 'Cache-Control': AUDIO_CACHE });
     pipeSafe(createReadStream(rawPath), res);
   }
+}
+
+/* ============================ lyrics (offline-first, online fallback) ============================
+ * GET /api/lyrics?path= serves time-synced (karaoke) or plain lyrics for the now-playing track. Local
+ * sources first (engine readLyrics: .lrc/.txt sidecar → embedded tags), then — only if nothing local —
+ * a graceful lrclib.net lookup (no key, degrades silently when offline; I3). Results are cached in
+ * memory per path. SOURCE MEDIA IS ONLY READ; nothing is written to disk. */
+
+const LRCLIB_UA = 'MediaSommelier/0.1.0 ( https://github.com/MoebiusX/media-sommelier )';
+
+interface LyricsPayload {
+  ok: boolean;
+  source: 'sidecar' | 'embedded' | 'lrclib' | null;
+  synced: Array<{ time: number; text: string }> | null;
+  plain: string | null;
+}
+
+/** Successful lyrics lookups, keyed by track path (misses aren't cached so an offline retry can succeed). */
+const lyricsCache = new Map<string, LyricsPayload>();
+
+/** Best-effort lrclib.net lookup (exact get, then search). Returns null on miss / offline / timeout. */
+async function fetchLrclib(
+  title: string,
+  artist: string,
+  album: string | null,
+  durationMs: number | null,
+): Promise<LyricsPayload | null> {
+  if (!title || !artist) return null;
+  const base = new URLSearchParams({ track_name: title, artist_name: artist });
+  if (album) base.set('album_name', album);
+  const get = new URLSearchParams(base);
+  if (durationMs) get.set('duration', String(Math.round(durationMs / 1000)));
+  const urls = [`https://lrclib.net/api/get?${get}`, `https://lrclib.net/api/search?${base}`];
+  for (const u of urls) {
+    try {
+      const r = await fetch(u, { headers: { 'User-Agent': LRCLIB_UA }, signal: AbortSignal.timeout(8000) });
+      if (!r.ok) continue;
+      const data = (await r.json()) as unknown;
+      const rec = (Array.isArray(data) ? data[0] : data) as { syncedLyrics?: unknown; plainLyrics?: unknown } | undefined;
+      if (!rec) continue;
+      const syncedText = typeof rec.syncedLyrics === 'string' ? rec.syncedLyrics.trim() : '';
+      const synced = syncedText ? parseLrc(syncedText) : [];
+      const plainText = typeof rec.plainLyrics === 'string' ? rec.plainLyrics.trim() : '';
+      const plain = plainText || (synced.length ? synced.map((l) => l.text).join('\n') : '');
+      if (synced.length || plain) return { ok: true, source: 'lrclib', synced: synced.length ? synced : null, plain: plain || null };
+    } catch {
+      /* offline / timeout / bad JSON — graceful degrade, try next */
+    }
+  }
+  return null;
+}
+
+/**
+ * GET /api/lyrics?path= — lyrics for an indexed track. Validated exactly like /api/audio (path must
+ * resolve under the indexed root AND match a row in `tracks`); refuses anything else.
+ */
+async function serveLyrics(db: Database.Database, res: ServerResponse, params: URLSearchParams): Promise<void> {
+  const rawPath = params.get('path');
+  if (!rawPath) return json(res, 400, { ok: false, error: 'no_path' });
+
+  const root = meta<{ root?: string }>(db, 'overview')?.root;
+  const row = db.prepare('SELECT title, artistName, album, durationMs FROM tracks WHERE path = ?').get(rawPath) as
+    | { title: string; artistName: string | null; album: string | null; durationMs: number | null }
+    | undefined;
+  if (!isUnderRoot(root, rawPath) || !row) return json(res, 404, { ok: false, error: 'track_not_found' });
+
+  const cached = lyricsCache.get(rawPath);
+  if (cached) return json(res, 200, cached);
+
+  const local = await readLyrics(rawPath);
+  let payload: LyricsPayload;
+  if (local.synced || local.plain) {
+    payload = { ok: true, source: local.source, synced: local.synced, plain: local.plain };
+  } else {
+    payload =
+      (await fetchLrclib(row.title, row.artistName ?? '', row.album, row.durationMs)) ??
+      { ok: false, source: null, synced: null, plain: null };
+  }
+  if (payload.ok) lyricsCache.set(rawPath, payload);
+  return json(res, 200, payload);
+}
+
+/* ============================ loudness (ReplayGain, offline) ============================
+ * GET /api/loudness?path= returns the track/album ReplayGain (dB) + sample peaks read from the file's
+ * embedded tags, so the player can level-match tracks via a Web Audio gain node. Fully offline (engine
+ * readReplayGain), validated like /api/audio, cached per path (tags are static — even a miss is cached so
+ * an untagged file isn't re-parsed). SOURCE IS ONLY READ. Untagged files return source:null → no change. */
+
+interface LoudnessPayload {
+  ok: boolean;
+  trackGainDb: number | null;
+  albumGainDb: number | null;
+  trackPeak: number | null;
+  albumPeak: number | null;
+  source: 'tag' | null;
+}
+
+const loudnessCache = new Map<string, LoudnessPayload>();
+
+async function serveLoudness(db: Database.Database, res: ServerResponse, params: URLSearchParams): Promise<void> {
+  const rawPath = params.get('path');
+  if (!rawPath) return json(res, 400, { ok: false, error: 'no_path' });
+
+  const root = meta<{ root?: string }>(db, 'overview')?.root;
+  const known = db.prepare('SELECT 1 FROM tracks WHERE path = ?').get(rawPath) as unknown;
+  if (!isUnderRoot(root, rawPath) || !known) return json(res, 404, { ok: false, error: 'track_not_found' });
+
+  const cached = loudnessCache.get(rawPath);
+  if (cached) return json(res, 200, cached);
+
+  const rg = await readReplayGain(rawPath);
+  const payload: LoudnessPayload = { ok: true, ...rg };
+  loudnessCache.set(rawPath, payload);
+  return json(res, 200, payload);
+}
+
+/* ================================ Auto DJ (mood/style radio) ================================
+ * Build an endless, mood/style-coherent queue from the catalog. Fully offline (engine `autoDj` over
+ * genre tags + era — invariant I3). The pool is every PLAYABLE track (the browser <audio> can't decode
+ * .wma/.ape, so we never queue them). SOURCE IS ONLY READ. */
+
+/** Every indexed track the player can actually decode, shaped for the engine sequencer. */
+function loadDjPool(db: Database.Database): DjTrack[] {
+  const rows = db
+    .prepare(
+      `SELECT id, path, title, artistName AS artist, album AS albumTitle, albumId, genre, year, durationMs FROM tracks`,
+    )
+    .all() as Array<{
+    id: number;
+    path: string;
+    title: string;
+    artist: string | null;
+    albumTitle: string | null;
+    albumId: string | null;
+    genre: string | null;
+    year: number | null;
+    durationMs: number | null;
+  }>;
+  return rows.filter((r) => AUDIO_MIME[extLower(r.path)] != null);
+}
+
+/** GET /api/dj/moods — moods + style families present in the (playable) library, with track counts. */
+function djMoods(db: Database.Database, res: ServerResponse): void {
+  const pool = loadDjPool(db);
+  const moods = new Map<Mood, number>();
+  const styles = new Map<StyleFamily, number>();
+  for (const t of pool) {
+    const c = classifyGenre(t.genre);
+    if (!c) continue;
+    moods.set(c.mood, (moods.get(c.mood) ?? 0) + 1);
+    styles.set(c.style, (styles.get(c.style) ?? 0) + 1);
+  }
+  const toArr = <K extends string>(m: Map<K, number>, labels: Record<K, string>) =>
+    [...m.entries()].map(([key, tracks]) => ({ key, label: labels[key], tracks })).sort((a, b) => b.tracks - a.tracks);
+  json(res, 200, {
+    moods: toArr(moods, MOOD_LABELS),
+    styles: toArr(styles, STYLE_LABELS),
+    classifiedTracks: pool.reduce((n, t) => n + (classifyGenre(t.genre) ? 1 : 0), 0),
+  });
+}
+
+/** POST /api/dj/queue — { seedPath?, mood?, style?, artist?, exclude?, limit? } → ordered PlayerTracks. */
+async function djQueue(db: Database.Database, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const b = await readBody(req);
+  const pool = loadDjPool(db);
+  if (pool.length === 0) return json(res, 200, { target: { label: 'Auto DJ' }, tracks: [] });
+
+  const seedPath = b.seedPath ? String(b.seedPath) : '';
+  let seed = seedPath ? pool.find((t) => t.path === seedPath) : undefined;
+  // "Start a station from this artist": anchor on one of their tracks.
+  if (!seed && b.artist) {
+    const ak = String(b.artist).toLowerCase().trim();
+    const matches = pool.filter((t) => (t.artist ?? '').toLowerCase().trim() === ak);
+    if (matches.length) seed = matches[Math.floor(Math.random() * matches.length)];
+  }
+  const mood = isMood(typeof b.mood === 'string' ? b.mood : null) ? (b.mood as Mood) : undefined;
+  const style = isStyleFamily(typeof b.style === 'string' ? b.style : null) ? (b.style as StyleFamily) : undefined;
+  const exclude = Array.isArray(b.exclude) ? (b.exclude as unknown[]).map(String) : [];
+  const limit = b.limit ? Math.max(1, Math.min(Number(b.limit), 100)) : 40;
+
+  const set = autoDj(pool, {
+    ...(seed ? { seed } : {}),
+    ...(mood ? { mood } : {}),
+    ...(style ? { style } : {}),
+    exclude,
+    limit,
+  });
+  const tracks = set.picks.map((p) => ({
+    id: p.id,
+    title: p.title,
+    artistName: p.artist ?? 'Unknown Artist',
+    path: p.path,
+    durationMs: p.durationMs,
+    ...(p.albumId ? { albumId: p.albumId } : {}),
+    ...(p.albumTitle ? { albumTitle: p.albumTitle } : {}),
+    reason: p.reason,
+  }));
+  json(res, 200, { target: set.target, tracks });
 }
 
 /* ====================================== router ====================================== */
@@ -1949,6 +2165,10 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
   if (path === '/api/duplicates') return duplicates(db, res);
   if (path === '/api/cover') return cover(db, res, url.searchParams);
   if (path === '/api/audio') return serveAudio(db, req, res, url.searchParams);
+  if (path === '/api/lyrics') return serveLyrics(db, res, url.searchParams);
+  if (path === '/api/loudness') return serveLoudness(db, res, url.searchParams);
+  if (path === '/api/dj/moods') return djMoods(db, res);
+  if (path === '/api/dj/queue' && method === 'POST') return djQueue(db, req, res);
 
   const artistMatch = /^\/api\/artist\/(.+)$/.exec(path);
   if (artistMatch) return artist(db, res, decodeURIComponent(artistMatch[1]!));
