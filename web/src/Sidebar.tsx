@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { usePlayer } from './player';
 import { Icon, Cover } from './ui';
 import { AutoDjPicker } from './AutoDj';
+import { currentTheme, setTheme, type Theme } from './theme';
 
 export type Tab = 'overview' | 'library' | 'organize' | 'sync' | 'playlists';
 type Job = { type: string; phase: string; done: number; total: number };
@@ -26,6 +27,33 @@ const Radio = () => (
     <path d="M16 13.5v2" />
   </svg>
 );
+const Sun = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <circle cx="12" cy="12" r="4.2" />
+    <path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8 6 18M18 6l1.8-1.8" />
+  </svg>
+);
+const Moon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8z" />
+  </svg>
+);
+
+/** Light/dark toggle. Flips the theme, persists it, and shows the icon of the theme you'd switch TO. */
+function ThemeToggle() {
+  const [theme, setT] = useState<Theme>(() => currentTheme());
+  const toggle = () => {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    setT(next);
+  };
+  return (
+    <button className="theme-toggle" onClick={toggle} aria-label="Toggle light/dark theme" title={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}>
+      {theme === 'dark' ? <Sun /> : <Moon />}
+    </button>
+  );
+}
+
 const Collapse = ({ collapsed }: { collapsed: boolean }) => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden
     style={{ transform: collapsed ? 'rotate(180deg)' : undefined }}>
@@ -230,6 +258,7 @@ export default function Sidebar({
           <span className={'dot ' + (apiUp ? 'ok' : apiUp === false ? 'down' : '')} />
           {!collapsed && (apiUp ? 'API connected' : apiUp === false ? 'API offline' : 'connecting…')}
         </span>
+        <ThemeToggle />
       </div>
 
       {!collapsed && <div className="sidebar-resize" onMouseDown={startDrag} aria-hidden />}
