@@ -24,6 +24,7 @@ import {
   readCover,
   readLyrics,
   parseLrc,
+  readReplayGain,
   autoDj,
   classifyGenre,
   isMood,
@@ -1517,6 +1518,11 @@ const AUDIO_MIME: Record<string, string> = {
   aif: 'audio/aiff',
 };
 
+/** Source files are immutable for a session, so let the browser cache them — this is what makes the
+ *  player's next-track preload (a hidden warmer <audio>) pay off: the bytes are already cached when the
+ *  main element advances. private = never shared by a proxy (paths are local + sensitive). */
+const AUDIO_CACHE = 'private, max-age=3600';
+
 /** Attach an error handler so a mid-stream read failure ends the response instead of crashing. */
 function pipeSafe(stream: ReturnType<typeof createReadStream>, res: ServerResponse): void {
   stream.on('error', () => {
@@ -1563,7 +1569,7 @@ async function serveAudio(
     let start = Number(m[1]);
     let end = m[2] ? Number(m[2]) : size - 1;
     if (!Number.isFinite(start) || !Number.isFinite(end)) {
-      res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': size });
+      res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': size, 'Cache-Control': AUDIO_CACHE });
       pipeSafe(createReadStream(rawPath), res);
       return;
     }
@@ -1578,10 +1584,11 @@ async function serveAudio(
       'Accept-Ranges': 'bytes',
       'Content-Range': `bytes ${start}-${end}/${size}`,
       'Content-Length': end - start + 1,
+      'Cache-Control': AUDIO_CACHE,
     });
     pipeSafe(createReadStream(rawPath, { start, end }), res);
   } else {
-    res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': size });
+    res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': size, 'Cache-Control': AUDIO_CACHE });
     pipeSafe(createReadStream(rawPath), res);
   }
 }
@@ -1663,6 +1670,40 @@ async function serveLyrics(db: Database.Database, res: ServerResponse, params: U
       { ok: false, source: null, synced: null, plain: null };
   }
   if (payload.ok) lyricsCache.set(rawPath, payload);
+  return json(res, 200, payload);
+}
+
+/* ============================ loudness (ReplayGain, offline) ============================
+ * GET /api/loudness?path= returns the track/album ReplayGain (dB) + sample peaks read from the file's
+ * embedded tags, so the player can level-match tracks via a Web Audio gain node. Fully offline (engine
+ * readReplayGain), validated like /api/audio, cached per path (tags are static — even a miss is cached so
+ * an untagged file isn't re-parsed). SOURCE IS ONLY READ. Untagged files return source:null → no change. */
+
+interface LoudnessPayload {
+  ok: boolean;
+  trackGainDb: number | null;
+  albumGainDb: number | null;
+  trackPeak: number | null;
+  albumPeak: number | null;
+  source: 'tag' | null;
+}
+
+const loudnessCache = new Map<string, LoudnessPayload>();
+
+async function serveLoudness(db: Database.Database, res: ServerResponse, params: URLSearchParams): Promise<void> {
+  const rawPath = params.get('path');
+  if (!rawPath) return json(res, 400, { ok: false, error: 'no_path' });
+
+  const root = meta<{ root?: string }>(db, 'overview')?.root;
+  const known = db.prepare('SELECT 1 FROM tracks WHERE path = ?').get(rawPath) as unknown;
+  if (!isUnderRoot(root, rawPath) || !known) return json(res, 404, { ok: false, error: 'track_not_found' });
+
+  const cached = loudnessCache.get(rawPath);
+  if (cached) return json(res, 200, cached);
+
+  const rg = await readReplayGain(rawPath);
+  const payload: LoudnessPayload = { ok: true, ...rg };
+  loudnessCache.set(rawPath, payload);
   return json(res, 200, payload);
 }
 
@@ -2125,6 +2166,7 @@ async function handle(db: Database.Database, req: IncomingMessage, res: ServerRe
   if (path === '/api/cover') return cover(db, res, url.searchParams);
   if (path === '/api/audio') return serveAudio(db, req, res, url.searchParams);
   if (path === '/api/lyrics') return serveLyrics(db, res, url.searchParams);
+  if (path === '/api/loudness') return serveLoudness(db, res, url.searchParams);
   if (path === '/api/dj/moods') return djMoods(db, res);
   if (path === '/api/dj/queue' && method === 'POST') return djQueue(db, req, res);
 
