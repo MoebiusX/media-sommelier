@@ -14,11 +14,50 @@
   --warn: #e8b864;
   --danger: #e8796b;
   --gold: #d8b66a;
+  /* semantic tokens that differ by theme (see [data-theme='light'] below) */
+  --on-accent: #0c0d10; /* text on accent backgrounds */
+  --scroll: #2a2e36;
+  --scroll-hover: #353a44;
+  --cover-fallback: linear-gradient(150deg, #1a1d23, #14161b);
+  --player-bg: rgba(19, 21, 25, 0.94);
+  --overlay-bg: radial-gradient(1200px 600px at 50% -10%, rgba(124, 156, 255, 0.12), transparent 60%),
+    linear-gradient(180deg, #0b0c0f 0%, #0c0d10 100%);
+  --overlay-foot: rgba(12, 13, 16, 0.6);
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.25);
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color-scheme: dark;
+}
+
+/* Light theme — applied via <html data-theme="light"> (see web/src/theme.ts). Accents are deepened
+   for contrast on white; translucent accent tints layer fine over either background. */
+:root[data-theme='light'] {
+  --bg: #f6f7f9;
+  --bg-elev: #ffffff;
+  --bg-elev-2: #eef1f5;
+  --bg-hover: #e9edf2;
+  --border: #d7dce4;
+  --border-soft: #e6e9ef;
+  --text: #1a1d23;
+  --text-dim: #545c6b;
+  --text-faint: #8b94a3;
+  --accent: #3b5bdb;
+  --accent-soft: rgba(59, 91, 219, 0.1);
+  --accent-2: #0e9f74;
+  --warn: #b9821f;
+  --danger: #d4493a;
+  --gold: #a8801f;
+  --on-accent: #ffffff;
+  --scroll: #c9ced6;
+  --scroll-hover: #aeb5c0;
+  --cover-fallback: linear-gradient(150deg, #e9edf2, #dde3ea);
+  --player-bg: rgba(255, 255, 255, 0.9);
+  --overlay-bg: radial-gradient(1200px 600px at 50% -10%, rgba(59, 91, 219, 0.1), transparent 60%),
+    linear-gradient(180deg, #ffffff 0%, #eef1f5 100%);
+  --overlay-foot: rgba(255, 255, 255, 0.7);
+  --shadow: 0 1px 2px rgba(20, 30, 50, 0.08), 0 10px 28px rgba(20, 30, 50, 0.1);
+  color-scheme: light;
 }
 
 * {
@@ -47,12 +86,12 @@ body {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a2e36;
+  background: var(--scroll);
   border-radius: 6px;
   border: 2px solid var(--bg);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #353a44;
+  background: var(--scroll-hover);
 }
 
 /* ---------- App shell ---------- */
@@ -529,8 +568,36 @@ body.resizing {
   flex: 1;
 }
 .sidebar-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px;
   border-top: 1px solid var(--border-soft);
+}
+.sidebar-foot .pill {
+  flex: 1;
+  min-width: 0;
+}
+.theme-toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-dim);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.sidebar.collapsed .sidebar-foot {
+  flex-direction: column-reverse;
+  gap: 10px;
 }
 .running-box {
   display: flex;
@@ -899,7 +966,7 @@ body.resizing {
   place-items: center;
   font-weight: 650;
   font-size: 15px;
-  color: #0c0d10;
+  color: var(--on-accent);
   background: linear-gradient(140deg, var(--accent), var(--accent-2));
   box-shadow: 0 2px 8px rgba(124, 156, 255, 0.18);
 }
@@ -1076,7 +1143,7 @@ body.resizing {
   font-size: 30px;
   font-weight: 700;
   color: var(--text-faint);
-  background: linear-gradient(150deg, #1a1d23, #14161b);
+  background: var(--cover-fallback);
   width: 100%;
   height: 100%;
   display: grid;
@@ -1466,7 +1533,7 @@ select.sb-input {
 .btn.primary {
   background: linear-gradient(140deg, var(--accent), var(--accent-2));
   border-color: transparent;
-  color: #0c0d10;
+  color: var(--on-accent);
   font-weight: 640;
   box-shadow: 0 2px 12px rgba(124, 156, 255, 0.28);
 }
@@ -2341,7 +2408,7 @@ select.sb-input {
   align-items: center;
   gap: 20px;
   padding: 0 24px;
-  background: rgba(19, 21, 25, 0.94);
+  background: var(--player-bg);
   backdrop-filter: blur(12px);
   border-top: 1px solid var(--border);
   box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.4);
@@ -2455,11 +2522,11 @@ select.sb-input {
   width: 38px;
   height: 38px;
   background: linear-gradient(140deg, var(--accent), var(--accent-2));
-  color: #0c0d10;
+  color: var(--on-accent);
 }
 .pbtn.play:hover:not(:disabled) {
   filter: brightness(1.08);
-  color: #0c0d10;
+  color: var(--on-accent);
 }
 
 .player-seek {
@@ -2730,9 +2797,7 @@ select.sb-input {
   z-index: 60;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(124, 156, 255, 0.12), transparent 60%),
-    linear-gradient(180deg, #0b0c0f 0%, #0c0d10 100%);
+  background: var(--overlay-bg);
   backdrop-filter: blur(6px);
   animation: ly-fade 0.18s ease-out;
 }
@@ -2899,7 +2964,7 @@ select.sb-input {
   gap: 16px;
   padding: 18px 32px;
   border-top: 1px solid var(--border-soft);
-  background: rgba(12, 13, 16, 0.6);
+  background: var(--overlay-foot);
 }
 .lyrics-foot .ly-t {
   font-variant-numeric: tabular-nums;
@@ -3049,7 +3114,7 @@ select.sb-input {
 .dj-quick-btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0c0d10;
+  color: var(--on-accent);
 }
 .dj-quick-btn.primary:hover {
   filter: brightness(1.08);
