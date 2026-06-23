@@ -6,16 +6,13 @@ import Organize from './Organize';
 import Drives from './Drives';
 import Playlists from './Playlists';
 import SourceBar from './SourceBar';
-import { Icon } from './ui';
 import { PlayerProvider } from './player';
 import PlayerBar from './PlayerBar';
 import CommandPalette from './CommandPalette';
-import { AutoDjLauncher } from './AutoDj';
-
-type Tab = 'overview' | 'library' | 'organize' | 'sync' | 'playlists';
+import Sidebar, { type Tab } from './Sidebar';
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('organize');
+  const [tab, setTab] = useState<Tab>('library');
   const [libView, setLibView] = useState<LibraryView>({ kind: 'artists' });
   const [apiUp, setApiUp] = useState<boolean | null>(null);
   const [source, setSource] = useState<string>(() => localStorage.getItem('somm.source') ?? '');
@@ -109,79 +106,22 @@ export default function App() {
     if (r.path) setSource(r.path);
   }
 
-  const navItem = (id: Tab, icon: 'overview' | 'library' | 'organize' | 'sync' | 'playlist', label: string) => (
-    <div
-      className={'nav-item' + (tab === id ? ' active' : '')}
-      onClick={() => {
-        setTab(id);
-        if (id === 'library') setLibView({ kind: 'artists' });
-      }}
-    >
-      <Icon name={icon} className="nav-ico" />
-      {label}
-    </div>
-  );
+  function navTo(t: Tab) {
+    setTab(t);
+    if (t === 'library') setLibView({ kind: 'artists' });
+  }
 
   return (
     <PlayerProvider>
     <div className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark" />
-          <div>
-            <div className="brand-name">Media Sommelier</div>
-            <div className="brand-sub">your library, reconstructed</div>
-          </div>
-        </div>
-
-        <button className="sidebar-search" onClick={() => setPaletteOpen(true)}>
-          <span>Search…</span>
-          <kbd>⌘K</kbd>
-        </button>
-
-        <AutoDjLauncher />
-
-        {navItem('organize', 'organize', 'Organize')}
-        {navItem('library', 'library', 'Library')}
-        {navItem('playlists', 'playlist', 'Playlists')}
-        {navItem('sync', 'sync', 'Sync')}
-        {navItem('overview', 'overview', 'Overview')}
-
-        <div className="sidebar-spacer" />
-        {running.length > 0 && (
-          <div className="running-box">
-            {running.map((j, i) => {
-              const label =
-                j.type === 'scan'
-                  ? 'Indexing'
-                  : j.type === 'sync'
-                    ? 'Syncing'
-                    : j.type === 'refresh'
-                      ? 'Refreshing covers'
-                      : j.type === 'organize'
-                        ? 'Organizing'
-                        : j.type;
-              return (
-                <div className="running-row" key={`${j.type}-${i}`}>
-                  <span className="spinner-sm" />
-                  <span className="running-label">{label}</span>
-                  {j.total > 0 && (
-                    <span className="running-count">
-                      {j.done.toLocaleString()}/{j.total.toLocaleString()}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-        <div className="sidebar-foot">
-          <span className="pill">
-            <span className={'dot ' + (apiUp ? 'ok' : apiUp === false ? 'down' : '')} />
-            {apiUp ? 'API connected' : apiUp === false ? 'API offline' : 'connecting…'}
-          </span>
-        </div>
-      </aside>
+      <Sidebar
+        tab={tab}
+        onNavigate={navTo}
+        onSearch={() => setPaletteOpen(true)}
+        onOpenAlbum={(id, artistName) => navLibrary({ kind: 'album', id, artistName })}
+        running={running}
+        apiUp={apiUp}
+      />
 
       <main className="main">
         <div className="main-inner">
