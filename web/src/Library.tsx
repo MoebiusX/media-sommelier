@@ -4,7 +4,6 @@ import {
   fmtDuration,
   fmtInt,
   type AlbumDetail,
-  type AlbumSummary,
   type ArtistDetail,
   type ArtistSummary,
   type BrowseAlbum,
@@ -13,8 +12,10 @@ import {
   type RefreshPreview,
   type Completeness,
 } from './api';
-import { Cover, ErrorState, FlagBadges, Icon, Loading } from './ui';
+import { Cover, ErrorState, FlagBadges, Loading, useClickOutside } from './ui';
 import { usePlayer, type PlayerTrack } from './player';
+import CollectionView from './collection/CollectionView';
+import { albumsDescriptor, artistsDescriptor } from './collection/descriptors';
 
 /** Library coordinates which sub-view is shown via lightweight local state. */
 export type LibraryView =
@@ -50,15 +51,10 @@ function LibraryTabs({ active, navigate }: { active: 'artists' | 'albums'; navig
   );
 }
 
-/* ---------------- Albums browse (all albums, sortable/filterable) ---------------- */
-const ALBUM_PAGE = 120;
+/* ---------------- Albums browse (all albums) ---------------- */
 function AlbumsBrowse({ navigate }: { navigate: (v: LibraryView) => void }) {
   const [albums, setAlbums] = useState<BrowseAlbum[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [q, setQ] = useState('');
-  const [sort, setSort] = useState<'artist' | 'title' | 'year' | 'tracks' | 'size'>('artist');
-  const [decade, setDecade] = useState<number | null>(null);
-  const [limit, setLimit] = useState(ALBUM_PAGE);
 
   useEffect(() => {
     let alive = true;
@@ -71,98 +67,31 @@ function AlbumsBrowse({ navigate }: { navigate: (v: LibraryView) => void }) {
     };
   }, []);
 
-  const decades = useMemo(() => {
-    if (!albums) return [];
-    const s = new Set<number>();
-    for (const a of albums) if (a.year) s.add(Math.floor(a.year / 10) * 10);
-    return [...s].sort((a, b) => a - b);
-  }, [albums]);
-
-  const filtered = useMemo(() => {
-    if (!albums) return [];
-    const needle = q.trim().toLowerCase();
-    let r = albums;
-    if (needle) r = r.filter((a) => a.title.toLowerCase().includes(needle) || a.artistName.toLowerCase().includes(needle));
-    if (decade != null) r = r.filter((a) => a.year != null && a.year >= decade && a.year < decade + 10);
-    const cmp: Record<string, (a: BrowseAlbum, b: BrowseAlbum) => number> = {
-      artist: (a, b) => a.artistName.localeCompare(b.artistName) || (a.year ?? 0) - (b.year ?? 0) || a.title.localeCompare(b.title),
-      title: (a, b) => a.title.localeCompare(b.title),
-      year: (a, b) => (b.year ?? 0) - (a.year ?? 0),
-      tracks: (a, b) => b.trackCount - a.trackCount,
-      size: (a, b) => b.sizeBytes - a.sizeBytes,
-    };
-    return [...r].sort(cmp[sort]);
-  }, [albums, q, decade, sort]);
-
-  useEffect(() => setLimit(ALBUM_PAGE), [q, decade, sort]);
-
-  if (error) return <ErrorState message={error} />;
-  const shown = filtered.slice(0, limit);
+  const descriptor = useMemo(
+    () => albumsDescriptor(navigate, { viewKey: 'albums', hasArtist: true, hasSize: true }),
+    [navigate],
+  );
 
   return (
     <>
       <LibraryTabs active="albums" navigate={navigate} />
       <h1 className="page-title">Albums</h1>
       <p className="page-lede">{albums ? `${fmtInt(albums.length)} reconstructed albums` : 'Your collection'}</p>
-      <div className="albums-controls">
-        <input className="search" style={{ margin: 0, flex: 1 }} placeholder="Filter albums…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="sb-input" style={{ width: 'auto', flex: 'none' }} value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
-          <option value="artist">Sort: Artist</option>
-          <option value="title">Sort: Title</option>
-          <option value="year">Sort: Newest</option>
-          <option value="tracks">Sort: Most tracks</option>
-          <option value="size">Sort: Largest</option>
-        </select>
-      </div>
-      {decades.length > 0 && (
-        <div className="decade-chips">
-          <button className={'decade' + (decade == null ? ' on' : '')} onClick={() => setDecade(null)}>
-            All
-          </button>
-          {decades.map((d) => (
-            <button key={d} className={'decade' + (decade === d ? ' on' : '')} onClick={() => setDecade(d)}>
-              {d}s
-            </button>
-          ))}
-        </div>
-      )}
-      {!albums ? (
+      {error ? (
+        <ErrorState message={error} />
+      ) : !albums ? (
         <Loading label="Loading albums…" />
-      ) : filtered.length === 0 ? (
-        <div className="empty">No albums match.</div>
       ) : (
-        <>
-          <div className="list-count">
-            Showing {fmtInt(shown.length)} of {fmtInt(filtered.length)} albums
-          </div>
-          <div className="album-grid">
-            {shown.map((a) => (
-              <AlbumCard key={a.id} album={a} artistName={a.artistName} navigate={navigate} />
-            ))}
-          </div>
-          {filtered.length > shown.length && (
-            <button className="load-more" onClick={() => setLimit((n) => n + ALBUM_PAGE)}>
-              Show {fmtInt(Math.min(ALBUM_PAGE, filtered.length - shown.length))} more
-            </button>
-          )}
-        </>
+        <CollectionView descriptor={descriptor} items={albums} pageSize={120} emptyText={() => 'No albums match.'} />
       )}
     </>
   );
 }
 
 /* ---------------- Artists list ---------------- */
-function avatarFor(name: string) {
-  return name.replace(/^the\s+/i, '').trim().slice(0, 1).toUpperCase() || '?';
-}
-
-const PAGE = 300;
-
 function ArtistsList({ navigate }: { navigate: (v: LibraryView) => void }) {
   const [artists, setArtists] = useState<ArtistSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [q, setQ] = useState('');
-  const [limit, setLimit] = useState(PAGE);
 
   useEffect(() => {
     let alive = true;
@@ -175,22 +104,7 @@ function ArtistsList({ navigate }: { navigate: (v: LibraryView) => void }) {
     };
   }, []);
 
-  // reset paging whenever the search changes
-  useEffect(() => {
-    setLimit(PAGE);
-  }, [q]);
-
-  const filtered = useMemo(() => {
-    if (!artists) return [];
-    const needle = q.trim().toLowerCase();
-    if (!needle) return artists;
-    return artists.filter((a) => a.name.toLowerCase().includes(needle));
-  }, [artists, q]);
-
-  if (error) return <ErrorState message={error} />;
-
-  const shown = filtered.slice(0, limit);
-  const hasMore = filtered.length > shown.length;
+  const descriptor = useMemo(() => artistsDescriptor(navigate), [navigate]);
 
   return (
     <>
@@ -200,84 +114,23 @@ function ArtistsList({ navigate }: { navigate: (v: LibraryView) => void }) {
         {artists ? `${fmtInt(artists.length)} artists` : 'Your collection'} — pick an artist to see their
         reconstructed albums.
       </p>
-      <input
-        className="search"
-        placeholder="Search artists…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
-      {!artists ? (
+      {error ? (
+        <ErrorState message={error} />
+      ) : !artists ? (
         <Loading label="Loading artists…" />
-      ) : filtered.length === 0 ? (
-        <div className="empty">No artists match “{q}”.</div>
       ) : (
-        <>
-          <div className="list-count">
-            Showing {fmtInt(shown.length)} of {fmtInt(filtered.length)}
-            {q.trim() ? ' matching' : ''} artist{filtered.length === 1 ? '' : 's'}
-          </div>
-          <div className="panel" style={{ padding: 8 }}>
-            <div className="list">
-              {shown.map((a) => (
-                <div
-                  key={a.name}
-                  className="row"
-                  onClick={() => navigate({ kind: 'artist', name: a.name })}
-                >
-                  <div className="avatar">{avatarFor(a.name)}</div>
-                  <div className="row-main">
-                    <div className="row-title">{a.name}</div>
-                    <div className="row-sub">
-                      {fmtInt(a.trackCount)} tracks
-                      {a.albumCount > 0
-                        ? ` · ${fmtInt(a.albumCount)} album${a.albumCount === 1 ? '' : 's'}`
-                        : ''}
-                    </div>
-                  </div>
-                  <Icon name="chevron" className="chev" />
-                </div>
-              ))}
-            </div>
-          </div>
-          {hasMore && (
-            <button className="load-more" onClick={() => setLimit((n) => n + PAGE)}>
-              Show {fmtInt(Math.min(PAGE, filtered.length - shown.length))} more
-            </button>
-          )}
-        </>
+        <CollectionView
+          descriptor={descriptor}
+          items={artists}
+          pageSize={300}
+          emptyText={(q) => (q ? `No artists match “${q}”.` : 'No artists indexed.')}
+        />
       )}
     </>
   );
 }
 
-/* ---------------- Artist page (album grid) ---------------- */
-function AlbumCard({
-  album,
-  artistName,
-  navigate,
-}: {
-  album: AlbumSummary;
-  artistName: string;
-  navigate: (v: LibraryView) => void;
-}) {
-  return (
-    <div className="album-card" onClick={() => navigate({ kind: 'album', id: album.id, artistName })}>
-      <Cover albumId={album.id} title={album.title} />
-      <div className="album-meta">
-        <div className="album-name" title={album.title}>
-          {album.title}
-        </div>
-        <div className="album-line">
-          <span>{album.year ?? '—'}</span>
-          <span>·</span>
-          <span>{fmtInt(album.trackCount)} tracks</span>
-        </div>
-        <FlagBadges flags={album.flags} lossless={album.lossless} discCount={album.discCount} />
-      </div>
-    </div>
-  );
-}
-
+/* ---------------- Artist page (their albums) ---------------- */
 function ArtistPage({ name, navigate }: { name: string; navigate: (v: LibraryView) => void }) {
   const [data, setData] = useState<ArtistDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -294,6 +147,11 @@ function ArtistPage({ name, navigate }: { name: string; navigate: (v: LibraryVie
       alive = false;
     };
   }, [name]);
+
+  const descriptor = useMemo(
+    () => albumsDescriptor(navigate, { viewKey: `artist:${name}`, fallbackArtist: name, hasArtist: false, hasSize: false }),
+    [navigate, name],
+  );
 
   return (
     <>
@@ -325,11 +183,7 @@ function ArtistPage({ name, navigate }: { name: string; navigate: (v: LibraryVie
                 : 'No tracks indexed for this artist.'}
             </div>
           ) : (
-            <div className="album-grid">
-              {data.albums.map((al) => (
-                <AlbumCard key={al.id} album={al} artistName={data.name} navigate={navigate} />
-              ))}
-            </div>
+            <CollectionView descriptor={descriptor} items={data.albums} pageSize={120} emptyText={() => 'No albums match.'} />
           )}
         </>
       )}
@@ -342,6 +196,7 @@ function AddToProfileButton({ albumId }: { albumId: string }) {
   const [open, setOpen] = useState(false);
   const [profiles, setProfiles] = useState<ProfileSummary[] | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const ref = useClickOutside<HTMLDivElement>(open, () => setOpen(false));
 
   async function toggle() {
     if (!open) {
@@ -372,7 +227,7 @@ function AddToProfileButton({ albumId }: { albumId: string }) {
   }
 
   return (
-    <div className="atp">
+    <div className="atp" ref={ref}>
       <button className="btn ghost" onClick={() => void toggle()}>
         + Add to profile ▾
       </button>
@@ -407,6 +262,7 @@ function AddToPlaylistButton({ albumId, trackPath, compact }: { albumId?: string
   const [lists, setLists] = useState<PlaylistSummary[] | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const payload = albumId ? { albumId } : trackPath ? { trackPath } : {};
+  const ref = useClickOutside<HTMLDivElement>(open, () => setOpen(false));
 
   async function toggle() {
     if (!open) {
@@ -437,7 +293,7 @@ function AddToPlaylistButton({ albumId, trackPath, compact }: { albumId?: string
   }
 
   return (
-    <div className="atp">
+    <div className="atp" ref={ref}>
       <button
         className={compact ? 'icon-btn pl-add' : 'btn ghost'}
         onClick={(e) => {
@@ -643,6 +499,7 @@ function CompletenessPanel({ albumId, onClose }: { albumId: string; onClose: () 
   }
   const complete = data.matched && (data.have ?? 0) >= (data.expected ?? 0);
   const missingCount = (data.expected ?? 0) - (data.have ?? 0);
+  const missing = data.missing ?? [];
   return (
     <div className="refresh-panel">
       {!data.matched ? (
@@ -671,7 +528,7 @@ function CompletenessPanel({ albumId, onClose }: { albumId: string; onClose: () 
             </span>
           </div>
           <ul className="cmpl-missing">
-            {(showAll ? data.missing! : data.missing!.slice(0, 8)).map((m, i) => (
+            {(showAll ? missing : missing.slice(0, 8)).map((m, i) => (
               <li key={i}>
                 {m.disc > 1 ? `${m.disc}-` : ''}
                 {m.position}. {m.title}
@@ -679,9 +536,9 @@ function CompletenessPanel({ albumId, onClose }: { albumId: string; onClose: () 
             ))}
           </ul>
           <div className="refresh-actions">
-            {data.missing!.length > 8 && !showAll && (
+            {missing.length > 8 && !showAll && (
               <button className="btn ghost" onClick={() => setShowAll(true)}>
-                Show all {fmtInt(data.missing!.length)}
+                Show all {fmtInt(missing.length)}
               </button>
             )}
             <button className="btn ghost" onClick={onClose}>

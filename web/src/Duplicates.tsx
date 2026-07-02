@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, fmtBytes, fmtDuration, fmtInt, type DuplicatesResult, type DupGroup } from './api';
 import { usePlayer, type PlayerTrack } from './player';
+import PickerMenu from './collection/PickerMenu';
 
 /**
  * Duplicate-track finder — the payoff of a "messy library" tool. Groups the same song ripped many
@@ -11,6 +12,7 @@ export default function Duplicates() {
   const [data, setData] = useState<DuplicatesResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
   const player = usePlayer();
 
   async function scan() {
@@ -34,6 +36,16 @@ export default function Duplicates() {
       ...(t.albumId ? { albumId: t.albumId } : {}),
     };
     player.playQueue([pt], 0);
+  }
+
+  // Every non-keeper copy across all groups — the redundant files worth collecting for review/cleanup.
+  const nonKeeperPaths = data ? data.groups.flatMap((g) => g.tracks.filter((t) => !t.keeper).map((t) => t.path)) : [];
+  const loadPlaylists = () => api.playlists().then((ps) => ps.map((p) => ({ id: p.id, name: p.name, sub: `${fmtInt(p.trackCount)}` })));
+  async function addExtras(id: number, name: string) {
+    if (nonKeeperPaths.length === 0) return;
+    await api.addToPlaylist({ id, trackPaths: nonKeeperPaths });
+    setMsg(`Added ${fmtInt(nonKeeperPaths.length)} extras to ${name}`);
+    setTimeout(() => setMsg(null), 2500);
   }
 
   return (
@@ -61,6 +73,16 @@ export default function Duplicates() {
               <b className="ok-text">{fmtBytes(data.wastedBytes)}</b> reclaimable
             </span>
             <span className="muted">keeper = best quality (lossless &gt; bitrate &gt; size)</span>
+          </div>
+          <div className="dup-actions">
+            <PickerMenu
+              label={`Collect ${fmtInt(nonKeeperPaths.length)} extras into a playlist`}
+              load={loadPlaylists}
+              onPick={addExtras}
+              onCreate={(n) => api.createPlaylist(n)}
+              emptyText="No playlists yet"
+            />
+            {msg && <span className="ok-text">{msg}</span>}
           </div>
           <div className="dup-list">
             {data.groups.map((g, i) => (

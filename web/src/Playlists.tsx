@@ -68,9 +68,19 @@ function RuleBuilder({
   function save() {
     const n = creating ? name.trim() : initialName!;
     if (creating && !n) return;
+    // The Lossless/Format value <select>s show a default option ("Yes" / "MP3") even when the underlying
+    // condition value is still '' (blank on creation, or field just switched) — normalize to what's
+    // actually displayed so the saved rule always matches what the user sees.
+    const normalized = conds.map((c) =>
+      c.field === 'lossless' && !c.value
+        ? { ...c, value: 'true' }
+        : c.field === 'format' && !c.value
+          ? { ...c, value: 'mp3' }
+          : c,
+    );
     onSave(n, {
       match,
-      conditions: conds.filter((c) => c.field === 'lossless' || c.field === 'format' || c.value.trim()),
+      conditions: normalized.filter((c) => c.field === 'lossless' || c.field === 'format' || c.value.trim()),
       sort,
       limit: Number(limit) || 100,
     });

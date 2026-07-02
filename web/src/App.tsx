@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type ScanStatus } from './api';
 import OverviewPage from './Overview';
 import Library, { type LibraryView } from './Library';
@@ -10,10 +10,55 @@ import { PlayerProvider } from './player';
 import PlayerBar from './PlayerBar';
 import CommandPalette from './CommandPalette';
 import Sidebar, { type Tab } from './Sidebar';
+import { parseHash, replaceHash } from './collection/hashState';
+
+const TABS: Tab[] = ['overview', 'library', 'organize', 'sync', 'playlists'];
+function decodeTab(t: string | undefined): Tab | null {
+  return t && (TABS as string[]).includes(t) ? (t as Tab) : null;
+}
+function decodeView(v: string | undefined): LibraryView | null {
+  if (!v) return null;
+  if (v === 'artists') return { kind: 'artists' };
+  if (v === 'albums') return { kind: 'albums' };
+  const i = v.indexOf(':');
+  if (i > 0) {
+    const kind = v.slice(0, i);
+    const rest = decodeURIComponent(v.slice(i + 1));
+    if (kind === 'artist') return { kind: 'artist', name: rest };
+    if (kind === 'album') return { kind: 'album', id: rest };
+  }
+  return null;
+}
+function encodeView(v: LibraryView): string {
+  if (v.kind === 'artists' || v.kind === 'albums') return v.kind;
+  if (v.kind === 'artist') return `artist:${encodeURIComponent(v.name)}`;
+  return `album:${encodeURIComponent(v.id)}`;
+}
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('library');
-  const [libView, setLibView] = useState<LibraryView>({ kind: 'artists' });
+  // Restore the tab + Library view from the URL hash on first mount (shared link / reload); default otherwise.
+  const initialHash = useMemo(() => parseHash(), []);
+  const [tab, setTab] = useState<Tab>(() => decodeTab(initialHash.t) ?? 'library');
+  const [libView, setLibView] = useState<LibraryView>(() => decodeView(initialHash.v) ?? { kind: 'artists' });
+
+  // Keep the hash in sync so a reload / shared link lands on the same place (view prefs persist separately).
+  useEffect(() => {
+    replaceHash({ t: tab, v: encodeView(libView) });
+  }, [tab, libView]);
+
+  // A shared #link opened (or edited) in an already-running tab should navigate too. history.replaceState
+  // (above) doesn't fire 'hashchange', so this only reacts to genuine user hash navigation — no loop.
+  useEffect(() => {
+    const onHash = () => {
+      const h = parseHash();
+      const t = decodeTab(h.t);
+      const v = decodeView(h.v);
+      if (t) setTab(t);
+      if (v) setLibView(v);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const [apiUp, setApiUp] = useState<boolean | null>(null);
   const [source, setSource] = useState<string>(() => localStorage.getItem('somm.source') ?? '');
   const [scan, setScan] = useState<ScanStatus | null>(null);

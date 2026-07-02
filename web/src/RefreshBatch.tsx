@@ -8,6 +8,7 @@ import { api, fmtInt, type RefreshBatchJob } from './api';
  */
 export default function RefreshBatch() {
   const [cand, setCand] = useState<{ missing: number; attempted: number; total: number } | null>(null);
+  const [candError, setCandError] = useState(false);
   const [job, setJob] = useState<RefreshBatchJob | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [applied, setApplied] = useState<number | null>(null);
@@ -16,8 +17,9 @@ export default function RefreshBatch() {
   const loadCandidates = useCallback(async () => {
     try {
       setCand(await api.refreshCandidates());
+      setCandError(false);
     } catch {
-      /* ignore */
+      setCandError(true);
     }
   }, []);
   useEffect(() => {
@@ -98,6 +100,13 @@ export default function RefreshBatch() {
                 {cand.attempted > 0 ? <> · {fmtInt(cand.attempted)} already checked</> : ''}.{' '}
                 {applied != null && <span className="ok-text">✓ applied {fmtInt(applied)} just now.</span>}
               </>
+            ) : candError ? (
+              <>
+                <span className="err-text">Couldn't check your library for missing covers.</span>{' '}
+                <span className="link" onClick={() => void loadCandidates()}>
+                  Retry
+                </span>
+              </>
             ) : (
               'Checking your library…'
             )}
@@ -139,6 +148,11 @@ export default function RefreshBatch() {
 
       {reviewing && job && (
         <div>
+          {job.state === 'error' && job.error && (
+            <div className="err-text" style={{ marginBottom: 10 }}>
+              Sweep stopped early: {job.error}
+            </div>
+          )}
           <div className="rb-review-head">
             <span>
               <b>{fmtInt(job.proposals.length)}</b> proposals · {fmtInt(selected.size)} selected

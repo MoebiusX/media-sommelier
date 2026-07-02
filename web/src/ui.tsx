@@ -1,5 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
+
+/** Closes an open dropdown/menu when the user clicks or taps outside the returned ref's element. */
+export function useClickOutside<T extends HTMLElement>(open: boolean, onClose: () => void) {
+  const ref = useRef<T | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open, onClose]);
+  return ref;
+}
 
 /** Inline stroke icons (no dependency). */
 export function Icon({

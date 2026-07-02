@@ -1219,7 +1219,7 @@ body.resizing {
 /* ---------- Album grid ---------- */
 .album-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--cover-min, 168px), 1fr));
   gap: 18px;
 }
 .album-card {
@@ -3315,4 +3315,294 @@ select.sb-input {
 @keyframes dj-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
+}
+
+/* ============================ collection view (toolbar · table · facets) ============================ */
+.cview-toolbar-wrap {
+  margin-bottom: 14px;
+}
+.cview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.cview-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cview-dir {
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+}
+.cview-dir:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+/* segmented control (mirrors .lib-tabs, inline, no bottom margin) */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  flex: none;
+}
+.seg button {
+  display: inline-grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 540;
+  padding: 5px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.seg button:hover {
+  color: var(--text);
+}
+.seg button.on {
+  background: var(--accent-soft);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25), inset 0 0 0 1px rgba(124, 156, 255, 0.25);
+}
+
+.cview-size {
+  width: 90px;
+  flex: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* filters popover */
+.cview-filters-anchor {
+  position: relative;
+  flex: none;
+}
+.btn.cview-filters-on {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.cview-filters {
+  min-width: 260px;
+  padding: 12px;
+  left: auto;
+  right: 0;
+}
+.cview-facet + .cview-facet {
+  margin-top: 12px;
+}
+.cview-facet-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  margin-bottom: 7px;
+}
+.cview-filters .decade-chips {
+  margin-bottom: 0;
+}
+.facet-count {
+  color: var(--text-faint);
+  font-size: 11px;
+  margin-left: 2px;
+}
+.decade.on .facet-count {
+  color: var(--accent);
+}
+.cview-clear {
+  margin-top: 12px;
+  width: 100%;
+}
+
+/* active-filter + remove chips */
+.cview-active {
+  margin-top: 2px;
+}
+.cview-active-chip {
+  font-weight: 540;
+}
+.cview-clear-inline {
+  color: var(--text-faint);
+}
+
+/* small square cover for list rows */
+.row-cover {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.row-cover .cover {
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+/* compact list density */
+.list.compact .row {
+  padding: 6px 12px;
+  gap: 10px;
+}
+.list.compact .avatar,
+.list.compact .row-cover {
+  width: 28px;
+  height: 28px;
+}
+.list.compact .row-sub {
+  display: none;
+}
+
+/* table layout */
+.ctable-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-elev);
+  box-shadow: var(--surface-hi);
+}
+.ctable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ctable thead th {
+  text-align: left;
+  padding: 9px 14px;
+  color: var(--text-faint);
+  font-weight: 560;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  white-space: nowrap;
+  user-select: none;
+}
+.ctable thead th.r {
+  text-align: right;
+}
+.ctable thead th.sortable {
+  cursor: pointer;
+}
+.ctable thead th.sortable:hover {
+  color: var(--text-dim);
+}
+.ctable thead th.active {
+  color: var(--accent);
+}
+.ct-arrow {
+  font-size: 9px;
+}
+.ctable tbody tr {
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-soft);
+  transition: background 0.1s;
+}
+.ctable tbody tr:last-child {
+  border-bottom: none;
+}
+.ctable tbody tr:hover {
+  background: var(--bg-hover);
+}
+.ctable tbody td {
+  padding: 8px 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 380px;
+}
+.ctable tbody td.r {
+  text-align: right;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ctable-wrap.compact tbody td,
+.ctable-wrap.compact thead th {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+/* selection */
+.csel {
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+.album-card {
+  position: relative;
+}
+.csel-grid {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.album-card:hover .csel-grid,
+.album-card.selected .csel-grid {
+  opacity: 1;
+}
+.row.selected,
+.ctable tbody tr.selected {
+  background: var(--accent-soft);
+}
+.album-card.selected .cover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.ct-sel {
+  width: 34px;
+  text-align: center;
+}
+.ct-sel input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* bulk action bar */
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--glow-accent-sm);
+}
+.bulk-count {
+  font-weight: 640;
+  color: var(--text);
+  font-size: 13px;
+}
+.bulk-msg {
+  margin-left: 2px;
+}
+.bulk-clear {
+  margin-left: auto;
+}
+.dup-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 12px;
 }
