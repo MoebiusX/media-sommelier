@@ -2,6 +2,7 @@
 // actually present in the library (with counts); selecting one (or "Surprise me", or seeding from the
 // current song) hands off to the player's startAutoDj(), which then keeps the queue topped up on-vibe.
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePlayer } from './player';
 import { api, type DjMoodsResult } from './api';
 
@@ -48,7 +49,10 @@ export function AutoDjPicker({ open, onClose }: { open: boolean; onClose: () => 
     onClose();
   };
 
-  return (
+  // Portal to <body>: the sidebar establishes its own stacking context (position:relative + z-index, so
+  // its ambient-bloom layer stays behind content), which would otherwise confine this fixed-position
+  // backdrop beneath the rest of the app instead of above it.
+  return createPortal(
     <div className="cp-backdrop dj-backdrop" onClick={onClose}>
       <div className="dj-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Auto DJ">
         <div className="dj-head">
@@ -102,6 +106,7 @@ export function AutoDjPicker({ open, onClose }: { open: boolean; onClose: () => 
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -1413,15 +1413,84 @@ function duplicates(db: Database.Database, res: ServerResponse): void {
   json(res, 200, { totalGroups: groups.length, wastedBytes, groups: groups.slice(0, 300) });
 }
 
-/** GET /api/artists — every artist with track & album counts, busiest first. */
-function artists(db: Database.Database, res: ServerResponse): void {
-  const rows = db
+interface EnrichedArtist {
+  name: string;
+  trackCount: number;
+  albumCount: number;
+  topGenre: string | null;
+  genres: string[];
+  formats: string[];
+  anyLossless: boolean;
+  sizeBytes: number;
+  minYear: number | null;
+  maxYear: number | null;
+}
+
+/**
+ * Every artist with facet fields rolled up from the `tracks` table (keyed by the canonical artistName,
+ * already indexed): top genre + genre set, distinct file formats, any-lossless, total size, and the
+ * active-year span. READ-ONLY — powers the Library artist filters/sort. Cheap at real scale (a handful of
+ * grouped scans over the indexed column).
+ */
+export function listArtists(db: Database.Database): EnrichedArtist[] {
+  const base = db
+    .prepare(`SELECT name, trackCount, albumCount FROM artists ORDER BY trackCount DESC, albumCount DESC, name ASC`)
+    .all() as Array<{ name: string; trackCount: number; albumCount: number }>;
+
+  const agg = db
     .prepare(
-      `SELECT name, trackCount, albumCount FROM artists
-       ORDER BY trackCount DESC, albumCount DESC, name ASC`,
+      `SELECT artistName AS name, COALESCE(SUM(sizeBytes),0) AS sizeBytes, MAX(lossless) AS anyLossless,
+              MIN(year) AS minYear, MAX(year) AS maxYear
+       FROM tracks WHERE artistName IS NOT NULL GROUP BY artistName`,
     )
-    .all();
-  json(res, 200, rows);
+    .all() as Array<{ name: string; sizeBytes: number; anyLossless: number; minYear: number | null; maxYear: number | null }>;
+  const aggMap = new Map(agg.map((a) => [a.name, a]));
+
+  const genreRows = db
+    .prepare(
+      `SELECT artistName AS name, genre, COUNT(*) AS n FROM tracks
+       WHERE artistName IS NOT NULL AND genre IS NOT NULL AND genre <> '' GROUP BY artistName, genre`,
+    )
+    .all() as Array<{ name: string; genre: string; n: number }>;
+  const genreMap = new Map<string, Array<{ genre: string; n: number }>>();
+  for (const r of genreRows) {
+    const arr = genreMap.get(r.name) ?? [];
+    arr.push({ genre: r.genre, n: r.n });
+    genreMap.set(r.name, arr);
+  }
+
+  // Format (file extension) isn't a column — derive it from the path like the rest of the server does.
+  const fmtMap = new Map<string, Set<string>>();
+  const pathRows = db.prepare(`SELECT artistName AS name, path FROM tracks WHERE artistName IS NOT NULL`).all() as Array<{ name: string; path: string }>;
+  for (const r of pathRows) {
+    const e = extLower(r.path);
+    if (!e) continue;
+    const s = fmtMap.get(r.name) ?? new Set<string>();
+    s.add(e);
+    fmtMap.set(r.name, s);
+  }
+
+  return base.map((b) => {
+    const gs = (genreMap.get(b.name) ?? []).slice().sort((x, y) => y.n - x.n || x.genre.localeCompare(y.genre));
+    const a = aggMap.get(b.name);
+    return {
+      name: b.name,
+      trackCount: b.trackCount,
+      albumCount: b.albumCount,
+      topGenre: gs[0]?.genre ?? null,
+      genres: gs.slice(0, 8).map((g) => g.genre),
+      formats: [...(fmtMap.get(b.name) ?? [])].sort(),
+      anyLossless: a ? a.anyLossless === 1 : false,
+      sizeBytes: a?.sizeBytes ?? 0,
+      minYear: a?.minYear ?? null,
+      maxYear: a?.maxYear ?? null,
+    };
+  });
+}
+
+/** GET /api/artists — every artist with track/album counts + rolled-up facet fields, busiest first. */
+function artists(db: Database.Database, res: ServerResponse): void {
+  json(res, 200, listArtists(db));
 }
 
 /** GET /api/albums — every reconstructed album (for the browse-all grid). Sorted/filtered client-side. */

@@ -23,6 +23,14 @@ export interface ArtistSummary {
   name: string;
   trackCount: number;
   albumCount: number;
+  // Facet fields rolled up server-side from the tracks table (optional: absent on older responses).
+  topGenre?: string | null;
+  genres?: string[];
+  formats?: string[];
+  anyLossless?: boolean;
+  sizeBytes?: number;
+  minYear?: number | null;
+  maxYear?: number | null;
 }
 
 export interface AlbumSummary {

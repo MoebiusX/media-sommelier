@@ -97,8 +97,11 @@ CREATE TABLE IF NOT EXISTS album_enrich (
 
 CREATE INDEX IF NOT EXISTS idx_tracks_albumId    ON tracks(albumId);
 CREATE INDEX IF NOT EXISTS idx_tracks_artistName ON tracks(artistName);
+CREATE INDEX IF NOT EXISTS idx_tracks_genre      ON tracks(genre);
 CREATE INDEX IF NOT EXISTS idx_albums_artistName ON albums(artistName);
 CREATE INDEX IF NOT EXISTS idx_albums_title      ON albums(title);
+CREATE INDEX IF NOT EXISTS idx_albums_year       ON albums(year);
+CREATE INDEX IF NOT EXISTS idx_albums_sizeBytes  ON albums(sizeBytes);
 `;
 
 /** Open (creating dirs + schema as needed) the SQLite database. */

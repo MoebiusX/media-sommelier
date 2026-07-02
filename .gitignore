@@ -22,6 +22,12 @@ cache/
 .env
 .env.local
 
+# e2e: generated fixtures + seeded catalog (the specs/config/seed ARE committed; the .tmp artifacts are not)
+e2e/.tmp/
+test-results/
+playwright-report/
+playwright/.cache/
+
 # vendored native binaries (fetched via tools/fetch-fpcalc; not committed)
 vendor/
 
